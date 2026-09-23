@@ -1,0 +1,1 @@
+Sistema de captura de imagens para treinamento de modelos de IA
