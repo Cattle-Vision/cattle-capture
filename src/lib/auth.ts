@@ -1,37 +1,73 @@
-import { cookies } from 'next/headers';
-import { SignJWT, jwtVerify } from 'jose';
+import NextAuth, { type DefaultSession } from "next-auth"
+import Credentials from "next-auth/providers/credentials"
+import { prisma } from "@/lib/prisma"
+import bcrypt from "bcryptjs"
 
-const secretKey = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret-key-for-dev');
-
-export async function createToken(payload: { userId: number; role: string }) {
-  return await new SignJWT(payload)
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime('24h')
-    .sign(secretKey);
-}
-
-export async function verifyToken(token: string) {
-  try {
-    const { payload } = await jwtVerify(token, secretKey);
-    return payload as { userId: number; role: string };
-  } catch (err) {
-    return null;
+declare module "next-auth" {
+  interface Session {
+    user: {
+      id: string;
+      role: string;
+    } & DefaultSession["user"]
+  }
+  interface User {
+    id: string;
+    role: string;
+    name?: string | null;
+    email?: string | null;
   }
 }
 
-export async function getSession() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('auth-token')?.value;
+export const { handlers, signIn, signOut, auth } = NextAuth({
+  providers: [
+    Credentials({
+      name: 'Credentials',
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Senha", type: "password" }
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null
+        
+        const user = await prisma.user.findUnique({
+          where: { email: credentials.email as string }
+        })
+        
+        if (!user) return null
+        
+        const isPasswordValid = await bcrypt.compare(
+          credentials.password as string,
+          user.password
+        )
 
-  if (!token) {
-    return { userId: null, role: null };
-  }
+        if (!isPasswordValid) return null
 
-  const payload = await verifyToken(token);
-  if (!payload) {
-    return { userId: null, role: null };
-  }
-
-  return { userId: payload.userId, role: payload.role };
-}
+        return {
+          id: String(user.id),
+          email: user.email,
+          name: user.name,
+          role: user.role,
+        }
+      }
+    })
+  ],
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id
+        token.role = user.role
+      }
+      return token
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.id = token.id as string
+        session.user.role = token.role as string
+      }
+      return session
+    }
+  },
+  pages: {
+    signIn: '/login',
+  },
+})

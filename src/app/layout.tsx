@@ -1,26 +1,23 @@
-import type { Metadata } from "next";
-import "./globals.css";
+import type { Metadata, Viewport } from "next";
 import { SyncManager } from "./SyncManager";
-
-import { Viewport } from "next";
+import "./globals.css";
 
 export const viewport: Viewport = {
   themeColor: "#16a34a",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export const metadata: Metadata = {
-  title: "CattleCapture - Análise Bovina",
-  description: "Sistema de captura e avaliação de bovinos para determinar o momento ideal de abate.",
-  manifest: "/manifest.json",
-  appleWebApp: {
-    capable: true,
-  },
+  title: "CattleCapture v2",
+  description: "Sistema PWA Offline First",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR">
-      <body>
+      <body className="antialiased">
         {children}
         <SyncManager />
       </body>

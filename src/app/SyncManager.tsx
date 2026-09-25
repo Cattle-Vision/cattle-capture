@@ -1,13 +1,10 @@
 'use client';
-
 import { useEffect, useState } from 'react';
 import { getSyncQueue, clearSyncItem } from '@/lib/sync';
 
 export function SyncManager() {
-  const [isOnline, setIsOnline] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-
   const [mounted, setMounted] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
     setMounted(true);
@@ -15,47 +12,14 @@ export function SyncManager() {
 
     const handleOnline = async () => {
       setIsOnline(true);
-      await processQueue();
-    };
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    // Initial check
-    if (navigator.onLine) {
-       processQueue();
-    }
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
-
-  const processQueue = async () => {
-    if (syncing) return;
-    setSyncing(true);
-    
-    try {
       const queue = await getSyncQueue();
-      if (!queue.length) {
-        setSyncing(false);
-        return;
-      }
-      
-      console.log(`Sincronizando ${queue.length} itens offline...`);
-
       for (const item of queue) {
         try {
-          let bodyData: any;
-          
+          let bodyData: any = item.body;
           if (item.isFormData) {
             bodyData = new FormData();
             bodyData.append('animalId', item.body.animalId);
-            // Reconstruir o File/Blob do array buffer
-            const blob = new Blob([item.body.file], { type: 'image/jpeg' });
-            bodyData.append('file', blob, item.body.fileName);
+            bodyData.append('file', new Blob([item.body.file], { type: 'image/jpeg' }), item.body.fileName);
           } else {
             bodyData = JSON.stringify(item.body);
           }
@@ -66,36 +30,25 @@ export function SyncManager() {
             headers: item.isFormData ? {} : { 'Content-Type': 'application/json' },
           });
 
-          if (res.ok) {
-            await clearSyncItem(item.id);
-          }
-        } catch (err) {
-          console.error('Falha ao enviar item offline', err);
-          break; // Stop se cair a rede de novo
-        }
+          if (res.ok) await clearSyncItem(item.id);
+        } catch { /* erro em uma requisição, mantem no db */ }
       }
-    } finally {
-      setSyncing(false);
-    }
-  };
+    };
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', () => setIsOnline(false));
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', () => setIsOnline(false));
+    };
+  }, []);
 
   if (!mounted) return null;
 
-  if (!isOnline) {
-     return (
-       <div style={{ position: 'fixed', bottom: 10, right: 10, background: '#f59e0b', color: '#000', padding: '5px 10px', borderRadius: 4, zIndex: 9999, fontSize: '0.8rem', pointerEvents: 'none' }}>
-         Trabalhando Offline
-       </div>
-     );
-  }
-  
-  if (syncing) {
-      return (
-       <div style={{ position: 'fixed', bottom: 10, right: 10, background: '#3b82f6', color: '#fff', padding: '5px 10px', borderRadius: 4, zIndex: 9999, fontSize: '0.8rem', pointerEvents: 'none' }}>
-         Sincronizando dados...
-       </div>
-     );
-  }
-
-  return null;
+  return !isOnline ? (
+    <div className="fixed bottom-4 right-4 bg-amber-500 text-black px-4 py-2 rounded-lg text-sm shadow-xl z-50">
+      Trabalhando Offline
+    </div>
+  ) : null;
 }

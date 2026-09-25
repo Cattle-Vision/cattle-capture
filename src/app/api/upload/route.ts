@@ -1,45 +1,44 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/lib/auth';
 import { promises as fs } from 'fs';
 import path from 'path';
 
 export async function POST(request: Request) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const animalId = formData.get('animalId') as string;
 
     if (!file || !animalId) {
-      return NextResponse.json({ error: 'Arquivo e animalId são obrigatórios' }, { status: 400 });
+      return NextResponse.json({ error: 'Arquivo ausente' }, { status: 400 });
+    }
+
+    const animal = await prisma.animal.findUnique({ where: { id: Number(animalId) } });
+    if (!animal || animal.ownerId !== Number(session.user.id)) {
+      return NextResponse.json({ error: 'Proibido' }, { status: 403 });
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const filename = `${Date.now()}_${file.name}`;
-    
-    // Caminho da pasta que será mapeada no Docker (bind mount)
     const uploadDir = path.join(process.cwd(), 'storage', 'uploads');
     
-    // Criar diretório se não existir
-    try {
-      await fs.access(uploadDir);
-    } catch {
-      await fs.mkdir(uploadDir, { recursive: true });
-    }
+    await fs.mkdir(uploadDir, { recursive: true });
+    await fs.writeFile(path.join(uploadDir, filename), buffer);
 
-    const filePath = path.join(uploadDir, filename);
-    await fs.writeFile(filePath, buffer);
-
-    // Salvar registro no banco
     const photo = await prisma.photo.create({
       data: {
         animalId: Number(animalId),
-        filePath: `/storage/uploads/${filename}`, // Caminho relativo para exibição futura se necessário
+        filePath: `/storage/uploads/${filename}`,
       }
     });
 
     return NextResponse.json({ success: true, photo }, { status: 201 });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: 'Erro ao fazer upload da imagem' }, { status: 500 });
+    console.error('Upload Error:', error);
+    return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
   }
 }
