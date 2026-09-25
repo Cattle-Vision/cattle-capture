@@ -31,7 +31,7 @@ model Animal {
 model Photo {
   id        Int      @id @default(autoincrement())
   animalId  Int
-  animal    Animal   @relation(fields: [animalId], references: [id])
+  animal    Animal   @relation(fields: [animalId], references: [id], onDelete: Cascade)
   filePath  String
   createdAt DateTime @default(now())
 }

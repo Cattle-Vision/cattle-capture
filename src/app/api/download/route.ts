@@ -13,11 +13,12 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Resolve o caminho absoluto e verifica que está dentro de storage/uploads
-    const absolutePath = path.resolve(UPLOAD_DIR, filePath.replace(/^[\/\\]/, ''));
+    // Resolve o caminho absoluto
+    const fileName = path.basename(filePath);
+    const absolutePath = path.resolve(UPLOAD_DIR, fileName);
 
     // Proteção contra path traversal
-    if (!absolutePath.startsWith(UPLOAD_DIR + path.sep)) {
+    if (!absolutePath.startsWith(UPLOAD_DIR)) {
       return NextResponse.json({ error: 'Acesso negado' }, { status: 403 });
     }
 

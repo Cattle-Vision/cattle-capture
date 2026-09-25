@@ -8,8 +8,8 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Grupo 3 - Análise Corporal Bovina",
-  description: "Sistema de captura e avaliação de bovinos para determinar o momento ideal de abate usando visão computacional e IA.",
+  title: "CattleCapture - Análise Bovina",
+  description: "Sistema de captura e avaliação de bovinos para determinar o momento ideal de abate.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,

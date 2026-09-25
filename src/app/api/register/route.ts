@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
+import { createToken } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
@@ -16,18 +17,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'E-mail já cadastrado' }, { status: 400 });
     }
 
+    const userCount = await prisma.user.count();
+    const role = userCount === 0 ? 'ADMIN' : 'USER';
+
     const hash = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
-      data: { name, email, password: hash },
+      data: { name, email, password: hash, role },
     });
 
+    const token = await createToken({ userId: user.id, role: user.role });
+
     const cookieStore = await cookies();
-    cookieStore.set('auth-token', user.id.toString(), {
-      httpOnly: true,
-      sameSite: 'lax',
-      path: '/',
-    });
-    cookieStore.set('user-role', user.role, {
+    cookieStore.set('auth-token', token, {
       httpOnly: true,
       sameSite: 'lax',
       path: '/',

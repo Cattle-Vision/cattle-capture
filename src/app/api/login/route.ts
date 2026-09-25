@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
+import { createToken } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
@@ -13,13 +14,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'E-mail ou senha incorretos' }, { status: 401 });
     }
 
+    const token = await createToken({ userId: user.id, role: user.role });
+
     const cookieStore = await cookies();
-    cookieStore.set('auth-token', user.id.toString(), {
-      httpOnly: true,
-      sameSite: 'lax',
-      path: '/',
-    });
-    cookieStore.set('user-role', user.role, {
+    cookieStore.set('auth-token', token, {
       httpOnly: true,
       sameSite: 'lax',
       path: '/',

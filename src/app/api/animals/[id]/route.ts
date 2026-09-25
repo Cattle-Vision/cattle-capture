@@ -52,7 +52,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     // Apaga arquivos físicos
     const uploadDir = path.join(process.cwd(), 'storage', 'uploads');
     for (const photo of animal.photos) {
-      const fullPath = path.resolve(uploadDir, photo.filePath.replace(/^\//, ''));
+      const filename = path.basename(photo.filePath);
+      const fullPath = path.resolve(uploadDir, filename);
       if (fullPath.startsWith(uploadDir)) {
         try { await fs.unlink(fullPath); } catch { /* ignora */ }
       }

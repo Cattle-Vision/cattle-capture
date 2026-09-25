@@ -50,6 +50,9 @@ prisma/prisma/dev.db-journal
 # uploads (runtime - per device)
 storage/uploads/
 
-# ML models (large, local only)
-*.onnx
-*.pt
+# ML models (now allowed in git as they are small)
+# *.onnx
+# *.pt
+
+# Planejamento gerado por IA
+tasks.md
