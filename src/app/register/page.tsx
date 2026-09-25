@@ -25,7 +25,7 @@ export default function RegisterPage() {
       const data = await res.json();
       if (res.ok) {
         setSuccess('Conta criada! Redirecionando...');
-        setTimeout(() => (window.location.href = '/login'), 1500);
+        setTimeout(() => (window.location.href = data.user.role === 'ADMIN' ? '/admin' : '/dashboard'), 1500);
       } else {
         setError(data.error || 'Erro ao cadastrar');
       }

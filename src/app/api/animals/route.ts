@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { cookies } from 'next/headers';
+import { getSession } from '@/lib/auth';
 
 // GET /api/animals — lista os animais do usuário logado
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const userId = cookieStore.get('auth-token')?.value;
+    const { userId } = await getSession();
     if (!userId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
     const animals = await prisma.animal.findMany({
@@ -24,8 +23,7 @@ export async function GET() {
 // POST /api/animals — cria novo animal para o usuário logado
 export async function POST(request: Request) {
   try {
-    const cookieStore = await cookies();
-    const userId = cookieStore.get('auth-token')?.value;
+    const { userId } = await getSession();
     if (!userId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
 
     const { name, breed, sex, weight, age } = await request.json();

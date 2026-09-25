@@ -1,6 +1,6 @@
-FROM node:22-slim
+FROM node:22-slim AS builder
 
-RUN apt-get update -y && apt-get install -y openssl
+RUN apt-get update -y && apt-get install -y openssl python3
 
 WORKDIR /app
 
@@ -9,11 +9,17 @@ RUN npm install --network-timeout=1000000
 
 COPY . .
 
-RUN npx prisma generate
+FROM node:22-slim AS runner
 
-RUN npm run build
+RUN apt-get update -y && apt-get install -y openssl python3
+
+WORKDIR /app
+
+COPY --from=builder /app ./
+
+ENV NODE_ENV=production
+ENV DATABASE_URL=file:./dev.db
 
 EXPOSE 3000
 
-# Roda db push antes de iniciar (cria o banco se não existir)
-CMD ["sh", "-c", "npx prisma db push && npm run start"]
+CMD ["sh", "-c", "npx prisma generate && npm run build && npx prisma db push && npm run start"]

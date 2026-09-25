@@ -3,6 +3,12 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
+interface Photo {
+  id: number;
+  filePath: string;
+  createdAt: string;
+}
+
 interface Animal {
   id: number;
   name: string;
@@ -10,13 +16,14 @@ interface Animal {
   sex: string;
   weight: number;
   age: number;
-  photos: { id: number }[];
+  photos: Photo[];
 }
 
 export default function DashboardPage() {
   const [animals, setAnimals] = useState<Animal[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -44,19 +51,36 @@ export default function DashboardPage() {
 
   useEffect(() => { fetchAnimals(); }, []);
 
+  const resetForm = () => {
+    setName(''); setBreed(''); setWeight(''); setAge(''); setSex('Macho');
+    setShowForm(false);
+    setEditingId(null);
+  };
+
+  const handleEdit = (animal: Animal) => {
+    setName(animal.name || '');
+    setBreed(animal.breed);
+    setSex(animal.sex);
+    setWeight(String(animal.weight));
+    setAge(String(animal.age));
+    setEditingId(animal.id);
+    setShowForm(true);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError('');
     try {
-      const res = await fetch('/api/animals', {
-        method: 'POST',
+      const url = editingId ? `/api/animals/${editingId}` : '/api/animals';
+      const method = editingId ? 'PATCH' : 'POST';
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, breed, sex, weight: Number(weight), age: Number(age) }),
       });
       if (res.ok) {
-        setName(''); setBreed(''); setWeight(''); setAge(''); setSex('Macho');
-        setShowForm(false);
+        resetForm();
         fetchAnimals();
       } else {
         const d = await res.json();
@@ -66,6 +90,17 @@ export default function DashboardPage() {
       setError('Erro de conexão');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Excluir este animal e todas as fotos?')) return;
+    try {
+      const res = await fetch(`/api/animals/${id}`, { method: 'DELETE' });
+      if (res.ok) fetchAnimals();
+      else alert('Erro ao excluir');
+    } catch {
+      alert('Erro de conexão');
     }
   };
 
@@ -79,10 +114,7 @@ export default function DashboardPage() {
       <nav className="navbar">
         <span className="navbar-brand">🐄 Cattle Capture</span>
         <div className="navbar-links">
-          <button
-            onClick={handleLogout}
-            className="btn btn-outline btn-sm"
-          >
+          <button onClick={handleLogout} className="btn btn-outline btn-sm">
             Sair
           </button>
         </div>
@@ -99,15 +131,17 @@ export default function DashboardPage() {
           <button
             className="btn btn-primary btn-sm"
             style={{ width: 'auto' }}
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => { resetForm(); setShowForm(true); }}
           >
-            {showForm ? 'Cancelar' : '+ Novo animal'}
+            + Novo animal
           </button>
         </div>
 
         {showForm && (
           <div className="card" style={{ marginBottom: '1.5rem' }}>
-            <h2 style={{ fontWeight: 600, marginBottom: '1rem' }}>Novo animal</h2>
+            <h2 style={{ fontWeight: 600, marginBottom: '1rem' }}>
+              {editingId ? 'Editar animal' : 'Novo animal'}
+            </h2>
             {error && <div className="alert alert-error">{error}</div>}
             <form onSubmit={handleSubmit}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -135,9 +169,14 @@ export default function DashboardPage() {
                   <input type="number" required min="1" value={age} onChange={e => setAge(e.target.value)} placeholder="Ex: 24" />
                 </div>
               </div>
-              <button type="submit" className="btn btn-primary" style={{ marginTop: '0.5rem' }} disabled={submitting}>
-                {submitting ? 'Salvando...' : 'Salvar animal'}
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {submitting ? 'Salvando...' : (editingId ? 'Atualizar' : 'Salvar animal')}
+                </button>
+                <button type="button" className="btn btn-outline" onClick={resetForm}>
+                  Cancelar
+                </button>
+              </div>
             </form>
           </div>
         )}
@@ -147,7 +186,7 @@ export default function DashboardPage() {
         ) : animals.length === 0 ? (
           <div className="card" style={{ textAlign: 'center', padding: '3rem' }}>
             <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>Nenhum animal cadastrado ainda.</p>
-            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowForm(true)}>
+            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => { resetForm(); setShowForm(true); }}>
               Cadastrar primeiro animal
             </button>
           </div>
@@ -176,18 +215,52 @@ export default function DashboardPage() {
                     <td>{animal.weight} kg</td>
                     <td>{animal.age} m</td>
                     <td>
-                      <span className={`badge ${animal.photos.length > 0 ? 'badge-green' : 'badge-gray'}`}>
-                        {animal.photos.length} foto{animal.photos.length !== 1 ? 's' : ''}
-                      </span>
+                      {animal.photos.length === 0 ? (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>Sem fotos</span>
+                      ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', alignItems: 'center' }}>
+                          {animal.photos.map(photo => (
+                            <a
+                              key={photo.id}
+                              href={`/api/download?path=${encodeURIComponent(photo.filePath)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <img
+                                src={`/api/download?path=${encodeURIComponent(photo.filePath)}`}
+                                alt={`Foto ${photo.id}`}
+                                style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #ccc' }}
+                              />
+                            </a>
+                          ))}
+                          <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                            ({animal.photos.length})
+                          </span>
+                        </div>
+                      )}
                     </td>
-                    <td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
                       <Link
                         href={`/camera?animalId=${animal.id}`}
                         className="btn btn-primary btn-sm"
-                        style={{ width: 'auto' }}
+                        style={{ width: 'auto', marginRight: '0.25rem' }}
                       >
                         Tirar foto
                       </Link>
+                      <button
+                        onClick={() => handleEdit(animal)}
+                        className="btn btn-outline btn-sm"
+                        style={{ width: 'auto', marginRight: '0.25rem' }}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleDelete(animal.id)}
+                        className="btn btn-outline btn-sm"
+                        style={{ width: 'auto', color: '#dc2626', borderColor: '#dc2626' }}
+                      >
+                        Excluir
+                      </button>
                     </td>
                   </tr>
                 ))}

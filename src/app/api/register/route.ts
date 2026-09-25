@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
+import { cookies } from 'next/headers';
 
 export async function POST(request: Request) {
   try {
@@ -20,7 +21,19 @@ export async function POST(request: Request) {
       data: { name, email, password: hash },
     });
 
-    return NextResponse.json({ success: true, user: { id: user.id, name: user.name } }, { status: 201 });
+    const cookieStore = await cookies();
+    cookieStore.set('auth-token', user.id.toString(), {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+    });
+    cookieStore.set('user-role', user.role, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+    });
+
+    return NextResponse.json({ success: true, user: { id: user.id, name: user.name, role: user.role } }, { status: 201 });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'Erro ao cadastrar usuário' }, { status: 500 });

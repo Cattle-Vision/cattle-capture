@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { cookies } from 'next/headers';
+import { getSession } from '@/lib/auth';
 
 // GET /api/admin/animals — todos os animais com dados do dono (somente ADMIN)
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-    const role = cookieStore.get('user-role')?.value;
+    const { role } = await getSession();
     if (role !== 'ADMIN') {
       return NextResponse.json({ error: 'Acesso negado' }, { status: 403 });
     }

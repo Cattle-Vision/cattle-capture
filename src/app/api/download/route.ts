@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 
+const UPLOAD_DIR = path.join(process.cwd(), 'storage', 'uploads');
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const filePath = searchParams.get('path');
@@ -11,17 +13,22 @@ export async function GET(request: Request) {
   }
 
   try {
-    // filePath esperado: /storage/uploads/12345_foto.jpg
-    const cleanPath = filePath.replace(/^\//, ''); // Remove a barra inicial se houver
-    const absolutePath = path.join(process.cwd(), cleanPath);
-    
+    // Resolve o caminho absoluto e verifica que está dentro de storage/uploads
+    const absolutePath = path.resolve(UPLOAD_DIR, filePath.replace(/^[\/\\]/, ''));
+
+    // Proteção contra path traversal
+    if (!absolutePath.startsWith(UPLOAD_DIR + path.sep)) {
+      return NextResponse.json({ error: 'Acesso negado' }, { status: 403 });
+    }
+
     const fileBuffer = await fs.readFile(absolutePath);
+    const baseName = path.basename(absolutePath);
 
     return new NextResponse(fileBuffer, {
       status: 200,
       headers: {
-        'Content-Disposition': `attachment; filename="${path.basename(absolutePath)}"`,
-        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="${baseName}"`,
+        'Content-Type': 'image/jpeg',
       },
     });
   } catch (error) {

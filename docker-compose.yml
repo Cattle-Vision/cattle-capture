@@ -4,8 +4,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./prisma:/app/prisma
       - ./storage/uploads:/app/storage/uploads
+      - ./prisma:/app/prisma
     environment:
       - DATABASE_URL=file:./dev.db
       - NODE_ENV=production
