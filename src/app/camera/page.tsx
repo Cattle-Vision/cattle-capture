@@ -119,16 +119,18 @@ function CameraContent() {
         }
       }
 
-      // Envia foto para o servidor
+      // Envia foto para o servidor ou salva offline
       canvas.toBlob(async (blob) => {
         if (!blob) {
           setUploading(false);
           return;
         }
+        const fileName = `animal_${animalId}_${sessionId.current}.jpg`;
+        const form = new FormData();
+        form.append('file', blob, fileName);
+        form.append('animalId', animalId);
+
         try {
-          const form = new FormData();
-          form.append('file', blob, `animal_${animalId}_${sessionId.current}.jpg`);
-          form.append('animalId', animalId);
           const res = await fetch('/api/upload', { method: 'POST', body: form });
           if (res.ok) {
             setDone(true);
@@ -136,7 +138,16 @@ function CameraContent() {
             setError('Erro ao enviar foto. Tente novamente.');
           }
         } catch {
-          setError('Erro de conexão.');
+          // Fallback offline
+          try {
+            const { enqueueSync } = await import('@/lib/sync');
+            // Converter blob para array buffer para salvar com IDB
+            const buffer = await blob.arrayBuffer();
+            await enqueueSync('/api/upload', 'POST', { file: buffer, fileName, animalId }, true);
+            setDone(true); // Finge que deu certo
+          } catch (e) {
+            setError('Falha de rede e falha ao salvar offline.');
+          }
         } finally {
           setUploading(false);
         }
@@ -239,7 +250,7 @@ function CameraContent() {
 
       {/* Botão de captura */}
       {streamActive && !error && (
-        <div style={{ position: 'absolute', bottom: '2.5rem', left: 0, right: 0, display: 'flex', justifyContent: 'center', zIndex: 20 }}>
+        <div style={{ position: 'absolute', bottom: 'calc(2.5rem + env(safe-area-inset-bottom))', left: 0, right: 0, display: 'flex', justifyContent: 'center', zIndex: 50 }}>
           <button
             onClick={handleCapture}
             disabled={uploading}

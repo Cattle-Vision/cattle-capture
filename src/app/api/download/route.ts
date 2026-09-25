@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { getSession } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'storage', 'uploads');
 
@@ -13,6 +15,23 @@ export async function GET(request: Request) {
   }
 
   try {
+    const { userId, role } = await getSession();
+    if (!userId) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+
+    // Verifica se a foto pertence a um animal do usuário
+    const photo = await prisma.photo.findFirst({
+      where: { filePath: filePath },
+      include: { animal: true }
+    });
+
+    if (!photo) {
+       return NextResponse.json({ error: 'Foto não encontrada no banco' }, { status: 404 });
+    }
+
+    if (photo.animal.ownerId !== Number(userId) && role !== 'ADMIN') {
+       return NextResponse.json({ error: 'Não autorizado a ver esta foto' }, { status: 403 });
+    }
+
     // Resolve o caminho absoluto
     const fileName = path.basename(filePath);
     const absolutePath = path.resolve(UPLOAD_DIR, fileName);
@@ -33,6 +52,6 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
-    return NextResponse.json({ error: 'Arquivo não encontrado' }, { status: 404 });
+    return NextResponse.json({ error: 'Erro interno ou arquivo não encontrado' }, { status: 500 });
   }
 }

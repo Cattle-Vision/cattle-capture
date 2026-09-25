@@ -226,3 +226,28 @@ tr:last-child td {
   justify-content: center;
   padding: 1.5rem;
 }
+
+/* Table Mobile view */
+@media (max-width: 640px) {
+  table, thead, tbody, th, td, tr {
+    display: block;
+  }
+  thead { display: none; }
+  tr { border-bottom: 2px solid var(--border); margin-bottom: 1rem; padding-bottom: 1rem; }
+  td {
+    border: none;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    padding-left: 50%;
+    min-height: 2.5rem;
+  }
+  td:last-child { border-bottom: none; }
+  td::before {
+    content: attr(data-label);
+    position: absolute; left: 6px; width: 45%; font-weight: bold;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+  }
+}
+

@@ -3,21 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
+    "@serwist/next": "^9.5.12",
     "@types/bcryptjs": "^2.4.6",
     "bcryptjs": "^3.0.3",
+    "idb": "^8.0.3",
     "jose": "^6.2.12",
     "next": "16.3.6",
     "onnxruntime-web": "^1.18.0",
     "prisma": "^5.20.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "serwist": "^9.5.12"
   },
   "devDependencies": {
     "@types/node": "^20",
