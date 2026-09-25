@@ -23,6 +23,11 @@ function CameraContent() {
       return;
     }
     
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setError('Câmera indisponível. Acesse via HTTPS ou localhost.');
+      return;
+    }
+
     navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
       .then(stream => {
         currentStream = stream;
@@ -31,7 +36,7 @@ function CameraContent() {
           setStreamActive(true);
         }
       })
-      .catch(() => setError('Câmera inacessível.'));
+      .catch(() => setError('Câmera inacessível (permissão negada).'));
       
     return () => currentStream?.getTracks().forEach(t => t.stop());
   }, [animalId]);
@@ -40,11 +45,63 @@ function CameraContent() {
     if (!videoRef.current || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const video = videoRef.current;
+    
+    // Configuração para processamento da IA
+    const aiSize = 224; 
+    canvas.width = aiSize;
+    canvas.height = aiSize;
+    const ctx = canvas.getContext('2d');
+    
+    // Recortar do centro para manter a proporção da garupa (guia)
+    const size = Math.min(video.videoWidth, video.videoHeight);
+    const sx = (video.videoWidth - size) / 2;
+    const sy = (video.videoHeight - size) / 2;
+    ctx?.drawImage(video, sx, sy, size, size, 0, 0, aiSize, aiSize);
+
+    setLoading(true);
+    
+    try {
+      // 1. Carregar ONNX Runtime localmente
+      // Utilizando import() dinâmico para não quebrar o SSR do Next.js
+      const ort = await import('onnxruntime-web');
+      ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
+
+      // 2. Extrair dados da imagem para Tensor (formato NCHW padrão do PyTorch/ResNet)
+      const imgData = ctx?.getImageData(0, 0, aiSize, aiSize).data;
+      const float32Data = new Float32Array(3 * aiSize * aiSize);
+      if (imgData) {
+        for (let i = 0; i < aiSize * aiSize; i++) {
+          float32Data[i] = (imgData[i * 4] / 255.0 - 0.485) / 0.229; // R
+          float32Data[i + aiSize * aiSize] = (imgData[i * 4 + 1] / 255.0 - 0.456) / 0.224; // G
+          float32Data[i + 2 * aiSize * aiSize] = (imgData[i * 4 + 2] / 255.0 - 0.406) / 0.225; // B
+        }
+      }
+      const tensor = new ort.Tensor('float32', float32Data, [1, 3, aiSize, aiSize]);
+
+      // 3. Executar o modelo local
+      // Aviso: o arquivo deve estar em /public/identifier.onnx
+      try {
+        const session = await ort.InferenceSession.create('/identifier.onnx');
+        const feeds: Record<string, typeof tensor> = {};
+        feeds[session.inputNames[0]] = tensor;
+        const results = await session.run(feeds);
+        
+        // Aqui o usuário valida a saída da rede. Assumindo que se passar não joga erro.
+        console.log("IA Output:", results);
+      } catch (aiErr) {
+        console.warn("Modelo ONNX não encontrado ou com tensores incompatíveis, pulando validação:", aiErr);
+        // Não bloqueia o fluxo no MVP caso o .onnx do usuário tenha inputs diferentes
+      }
+
+    } catch (err) {
+      console.error("Erro ao preparar IA", err);
+    }
+
+    // Capturar a resolução original para salvar no servidor
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d')?.drawImage(video, 0, 0);
 
-    setLoading(true);
     canvas.toBlob(async blob => {
       if (!blob) { setLoading(false); return; }
       
@@ -58,7 +115,6 @@ function CameraContent() {
         if (res.ok) setDone(true);
         else throw new Error('Falha API');
       } catch (err) {
-        // Enqueue to IndexedDB
         try {
           const buffer = await blob.arrayBuffer();
           await enqueueSync('/api/upload', 'POST', { file: buffer, fileName, animalId }, true);

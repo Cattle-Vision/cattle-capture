@@ -25,7 +25,10 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-zinc-50 p-4 sm:p-8">
       <header className="max-w-4xl mx-auto flex justify-between items-center mb-8">
         <h1 className="text-2xl font-bold text-zinc-900">Meus Animais</h1>
-        <Link href="/api/auth/signout" className="text-sm text-zinc-500 hover:text-zinc-900 border px-3 py-1 rounded bg-white">Sair</Link>
+        <div className="flex gap-4">
+          <Link href="/animal/new" className="text-sm text-white hover:bg-green-700 px-3 py-1 rounded bg-green-600">Cadastrar Animal</Link>
+          <Link href="/api/auth/signout" className="text-sm text-zinc-500 hover:text-zinc-900 border px-3 py-1 rounded bg-white">Sair</Link>
+        </div>
       </header>
 
       <main className="max-w-4xl mx-auto">
