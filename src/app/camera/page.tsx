@@ -1,10 +1,10 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Camera, RefreshCcw } from 'lucide-react';
 import { enqueueSync } from '@/lib/sync';
 
-export default function CameraPage() {
+function CameraContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const animalId = searchParams.get('animalId');
@@ -122,5 +122,14 @@ export default function CameraPage() {
         </div>
       )}
     </div>
+  );
+}
+
+
+export default function CameraPage() {
+  return (
+    <Suspense fallback={<div className="h-[100dvh] bg-black text-white p-8">Iniciando câmera...</div>}>
+      <CameraContent />
+    </Suspense>
   );
 }

@@ -46,13 +46,21 @@ export default function DashboardPage() {
                   </div>
                   
                   <div className="mt-4 pt-4 border-t flex flex-col gap-2">
-                    <div className="text-xs text-zinc-500 mb-1">{a.photos?.length || 0} fotos salvas</div>
-                    <Link 
-                      href={`/camera?animalId=${a.id}`}
-                      className="bg-green-600 text-white text-center py-2 rounded-md hover:bg-green-700 transition"
-                    >
-                      Capturar Foto
-                    </Link>
+                    <div className="text-xs text-zinc-500 mb-2">{a.photos?.length || 0} fotos salvas na galeria</div>
+                    <div className="flex gap-2">
+                      <Link 
+                        href={`/animal/${a.id}`}
+                        className="bg-zinc-200 text-zinc-800 text-center py-2 flex-1 rounded-md hover:bg-zinc-300 transition text-sm font-medium"
+                      >
+                        Ver Perfil
+                      </Link>
+                      <Link 
+                        href={`/camera?animalId=${a.id}`}
+                        className="bg-green-600 text-white text-center py-2 flex-1 rounded-md hover:bg-green-700 transition text-sm font-medium"
+                      >
+                        Capturar
+                      </Link>
+                    </div>
                   </div>
                 </div>
               ))}
