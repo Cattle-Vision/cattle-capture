@@ -121,7 +121,7 @@ export default function DashboardPage() {
       </nav>
 
       <div className="container" style={{ paddingTop: '2rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
           <div>
             <h1 style={{ fontSize: '1.375rem', fontWeight: 700 }}>Meus Animais</h1>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
@@ -144,7 +144,7 @@ export default function DashboardPage() {
             </h2>
             {error && <div className="alert alert-error">{error}</div>}
             <form onSubmit={handleSubmit}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="form-grid">
                 <div className="form-group">
                   <label>Nome / Identificação</label>
                   <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Ex: Boi 01, Nelore A" />

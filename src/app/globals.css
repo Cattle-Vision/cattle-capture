@@ -251,3 +251,35 @@ tr:last-child td {
   }
 }
 
+
+/* Responsividade Form */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 640px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  /* Ajusta o flex dos botões da tabela no modo mobile */
+  td .btn {
+    display: block !important;
+    width: 100% !important;
+    margin-right: 0 !important;
+    margin-bottom: 0.5rem;
+    text-align: center;
+  }
+  
+  /* Arruma botões inline em formulários mobile */
+  form > div[style*="display: flex"] {
+    flex-direction: column;
+  }
+  form > div[style*="display: flex"] > button {
+    width: 100%;
+    margin-bottom: 0.5rem;
+  }
+}
+
