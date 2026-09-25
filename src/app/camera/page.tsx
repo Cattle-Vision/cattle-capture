@@ -172,7 +172,7 @@ function CameraContent() {
   }
 
   return (
-    <div style={{ position: 'relative', width: '100vw', height: '100vh', background: '#000', overflow: 'hidden' }}>
+    <div style={{ position: 'relative', width: '100vw', height: '100dvh', background: '#000', overflow: 'hidden' }}>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       {/* Barra superior */}

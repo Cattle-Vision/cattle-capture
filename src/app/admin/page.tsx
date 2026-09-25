@@ -152,7 +152,7 @@ export default function AdminPage() {
           <div className="card" style={{ marginBottom: '1.5rem' }}>
             <h2 style={{ fontWeight: 600, marginBottom: '1rem' }}>Editar animal #{editingId}</h2>
             <form onSubmit={handleSubmit}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="form-grid">
                 <div className="form-group">
                   <label>Nome</label>
                   <input type="text" value={name} onChange={e => setName(e.target.value)} />
@@ -214,15 +214,15 @@ export default function AdminPage() {
               <tbody>
                 {animals.filter(a => a.name.toLowerCase().includes(searchTerm.toLowerCase()) || a.breed.toLowerCase().includes(searchTerm.toLowerCase()) || a.owner.name.toLowerCase().includes(searchTerm.toLowerCase())).map(animal => (
                   <tr key={animal.id}>
-                    <td style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>#{animal.id}</td>
-                    <td style={{ fontWeight: 500 }}>{animal.name || `Animal #${animal.id}`}</td>
-                    <td>{animal.breed} · {animal.sex}</td>
-                    <td>{animal.weight} kg · {animal.age} m</td>
-                    <td style={{ fontSize: '0.875rem' }}>
+                    <td data-label="ID" style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>#{animal.id}</td>
+                    <td data-label="Animal" style={{ fontWeight: 500 }}>{animal.name || `Animal #${animal.id}`}</td>
+                    <td data-label="Raça / Sexo">{animal.breed} · {animal.sex}</td>
+                    <td data-label="Peso / Idade">{animal.weight} kg · {animal.age} m</td>
+                    <td data-label="Dono" style={{ fontSize: '0.875rem' }}>
                       <div>{animal.owner.name}</div>
                       <div style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>{animal.owner.email}</div>
                     </td>
-                    <td>
+                    <td data-label="Fotos">
                       {animal.photos.length === 0 ? (
                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>Sem fotos</span>
                       ) : (
@@ -248,7 +248,7 @@ export default function AdminPage() {
                         </div>
                       )}
                     </td>
-                    <td>
+                    <td data-label="Ações">
                       <button
                         onClick={() => handleEdit(animal)}
                         className="btn btn-outline btn-sm"

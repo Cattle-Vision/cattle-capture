@@ -7,7 +7,10 @@ export function SyncManager() {
   const [isOnline, setIsOnline] = useState(true);
   const [syncing, setSyncing] = useState(false);
 
+  const [mounted, setMounted] = useState(false);
+
   useEffect(() => {
+    setMounted(true);
     setIsOnline(navigator.onLine);
 
     const handleOnline = async () => {
@@ -75,6 +78,8 @@ export function SyncManager() {
       setSyncing(false);
     }
   };
+
+  if (!mounted) return null;
 
   if (!isOnline) {
      return (

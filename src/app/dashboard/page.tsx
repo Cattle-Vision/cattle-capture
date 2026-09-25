@@ -208,13 +208,13 @@ export default function DashboardPage() {
               <tbody>
                 {animals.map(animal => (
                   <tr key={animal.id}>
-                    <td style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>#{animal.id}</td>
-                    <td style={{ fontWeight: 500 }}>{animal.name || '—'}</td>
-                    <td>{animal.breed}</td>
-                    <td>{animal.sex}</td>
-                    <td>{animal.weight} kg</td>
-                    <td>{animal.age} m</td>
-                    <td>
+                    <td data-label="ID" style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>#{animal.id}</td>
+                    <td data-label="Nome" style={{ fontWeight: 500 }}>{animal.name || '—'}</td>
+                    <td data-label="Raça">{animal.breed}</td>
+                    <td data-label="Sexo">{animal.sex}</td>
+                    <td data-label="Peso">{animal.weight} kg</td>
+                    <td data-label="Idade">{animal.age} m</td>
+                    <td data-label="Fotos">
                       {animal.photos.length === 0 ? (
                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>Sem fotos</span>
                       ) : (
@@ -239,7 +239,7 @@ export default function DashboardPage() {
                         </div>
                       )}
                     </td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
+                    <td data-label="Ações" style={{ whiteSpace: 'nowrap' }}>
                       <Link
                         href={`/camera?animalId=${animal.id}`}
                         className="btn btn-primary btn-sm"
