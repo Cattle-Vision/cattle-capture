@@ -3,113 +3,198 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
-export default function DashboardPage() {
-  const [animals, setAnimals] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+interface Animal {
+  id: number;
+  name: string;
+  breed: string;
+  sex: string;
+  weight: number;
+  age: number;
+  photos: { id: number }[];
+}
 
-  // Form states
+export default function DashboardPage() {
+  const [animals, setAnimals] = useState<Animal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  // Campos do formulário
+  const [name, setName] = useState('');
   const [breed, setBreed] = useState('');
-  const [sex, setSex] = useState('Fêmea');
+  const [sex, setSex] = useState('Macho');
   const [weight, setWeight] = useState('');
   const [age, setAge] = useState('');
 
   const fetchAnimals = async () => {
     try {
       const res = await fetch('/api/animals');
-      if (res.ok) {
-        const data = await res.json();
-        setAnimals(data);
+      if (res.status === 401) {
+        window.location.href = '/login';
+        return;
       }
-    } catch (err) {
-      console.error(err);
+      if (res.ok) setAnimals(await res.json());
+    } catch {
+      // silencioso
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchAnimals();
-  }, []);
+  useEffect(() => { fetchAnimals(); }, []);
 
-  const handleRegisterAnimal = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitting(true);
+    setError('');
     try {
       const res = await fetch('/api/animals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ breed, sex, weight, age })
+        body: JSON.stringify({ name, breed, sex, weight: Number(weight), age: Number(age) }),
       });
       if (res.ok) {
-        setBreed(''); setWeight(''); setAge('');
+        setName(''); setBreed(''); setWeight(''); setAge(''); setSex('Macho');
+        setShowForm(false);
         fetchAnimals();
       } else {
-        alert('Erro ao registrar');
+        const d = await res.json();
+        setError(d.error || 'Erro ao salvar animal');
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      setError('Erro de conexão');
+    } finally {
+      setSubmitting(false);
     }
   };
 
+  const handleLogout = async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    window.location.href = '/login';
+  };
+
   return (
-    <div style={{ padding: '2rem', maxWidth: '1000px', margin: '0 auto', minHeight: '100vh' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem' }}>
-        <h1 style={{ fontSize: '2.5rem', fontWeight: 'bold', background: 'linear-gradient(to right, #34d399, #10b981)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-          Meus Bovinos
-        </h1>
-        <Link href="/" style={{ color: 'var(--text-muted)' }}>Sair</Link>
-      </header>
+    <div style={{ minHeight: '100vh' }}>
+      <nav className="navbar">
+        <span className="navbar-brand">🐄 Cattle Capture</span>
+        <div className="navbar-links">
+          <button
+            onClick={handleLogout}
+            className="btn btn-outline btn-sm"
+          >
+            Sair
+          </button>
+        </div>
+      </nav>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
-        
-        {/* Formulário de Novo Animal */}
-        <div className="glass-panel" style={{ padding: '2rem', height: 'fit-content' }}>
-          <h2 style={{ fontSize: '1.25rem', marginBottom: '1.5rem', color: 'white' }}>Registrar Novo</h2>
-          <form onSubmit={handleRegisterAnimal} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <input 
-              className="input-premium" type="text" placeholder="Raça (ex: Nelore)" required 
-              value={breed} onChange={e => setBreed(e.target.value)}
-            />
-            <select className="input-premium" value={sex} onChange={e => setSex(e.target.value)} required>
-              <option value="Fêmea">Fêmea</option>
-              <option value="Macho">Macho</option>
-            </select>
-            <input 
-              className="input-premium" type="number" placeholder="Peso (kg)" required 
-              value={weight} onChange={e => setWeight(e.target.value)}
-            />
-            <input 
-              className="input-premium" type="number" placeholder="Idade (meses)" required 
-              value={age} onChange={e => setAge(e.target.value)}
-            />
-            <button type="submit" className="btn-premium" style={{ marginTop: '0.5rem' }}>Salvar Animal</button>
-          </form>
+      <div className="container" style={{ paddingTop: '2rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+          <div>
+            <h1 style={{ fontSize: '1.375rem', fontWeight: 700 }}>Meus Animais</h1>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+              Cadastre um animal e depois tire a foto pela câmera
+            </p>
+          </div>
+          <button
+            className="btn btn-primary btn-sm"
+            style={{ width: 'auto' }}
+            onClick={() => setShowForm(!showForm)}
+          >
+            {showForm ? 'Cancelar' : '+ Novo animal'}
+          </button>
         </div>
 
-        {/* Lista de Animais */}
-        <div className="glass-panel" style={{ padding: '2rem' }}>
-          <h2 style={{ fontSize: '1.25rem', marginBottom: '1.5rem', color: 'white' }}>Seu Rebanho</h2>
-          
-          {loading ? (
-            <p style={{ color: 'var(--text-muted)' }}>Carregando...</p>
-          ) : animals.length === 0 ? (
-            <p style={{ color: 'var(--text-muted)' }}>Nenhum animal cadastrado ainda.</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {animals.map(animal => (
-                <div key={animal.id} style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'white' }}>#{animal.id} - {animal.breed}</h3>
-                    <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>{animal.sex} • {animal.weight}kg • {animal.age} meses</p>
-                    <p style={{ fontSize: '0.75rem', color: '#34d399', marginTop: '0.25rem' }}>{animal.photos?.length || 0} fotos salvas</p>
-                  </div>
-                  <Link href={`/camera?animalId=${animal.id}`} className="btn-premium" style={{ width: 'auto', padding: '0.5rem 1rem', fontSize: '0.875rem' }}>
-                    Tirar Foto
-                  </Link>
+        {showForm && (
+          <div className="card" style={{ marginBottom: '1.5rem' }}>
+            <h2 style={{ fontWeight: 600, marginBottom: '1rem' }}>Novo animal</h2>
+            {error && <div className="alert alert-error">{error}</div>}
+            <form onSubmit={handleSubmit}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="form-group">
+                  <label>Nome / Identificação</label>
+                  <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Ex: Boi 01, Nelore A" />
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+                <div className="form-group">
+                  <label>Raça</label>
+                  <input type="text" required value={breed} onChange={e => setBreed(e.target.value)} placeholder="Ex: Nelore" />
+                </div>
+                <div className="form-group">
+                  <label>Sexo</label>
+                  <select value={sex} onChange={e => setSex(e.target.value)}>
+                    <option value="Macho">Macho</option>
+                    <option value="Fêmea">Fêmea</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Peso (kg)</label>
+                  <input type="number" required min="1" value={weight} onChange={e => setWeight(e.target.value)} placeholder="Ex: 450" />
+                </div>
+                <div className="form-group">
+                  <label>Idade (meses)</label>
+                  <input type="number" required min="1" value={age} onChange={e => setAge(e.target.value)} placeholder="Ex: 24" />
+                </div>
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ marginTop: '0.5rem' }} disabled={submitting}>
+                {submitting ? 'Salvando...' : 'Salvar animal'}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {loading ? (
+          <p style={{ color: 'var(--text-muted)' }}>Carregando...</p>
+        ) : animals.length === 0 ? (
+          <div className="card" style={{ textAlign: 'center', padding: '3rem' }}>
+            <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>Nenhum animal cadastrado ainda.</p>
+            <button className="btn btn-primary" style={{ width: 'auto' }} onClick={() => setShowForm(true)}>
+              Cadastrar primeiro animal
+            </button>
+          </div>
+        ) : (
+          <div className="card" style={{ padding: 0 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Nome</th>
+                  <th>Raça</th>
+                  <th>Sexo</th>
+                  <th>Peso</th>
+                  <th>Idade</th>
+                  <th>Fotos</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {animals.map(animal => (
+                  <tr key={animal.id}>
+                    <td style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>#{animal.id}</td>
+                    <td style={{ fontWeight: 500 }}>{animal.name || '—'}</td>
+                    <td>{animal.breed}</td>
+                    <td>{animal.sex}</td>
+                    <td>{animal.weight} kg</td>
+                    <td>{animal.age} m</td>
+                    <td>
+                      <span className={`badge ${animal.photos.length > 0 ? 'badge-green' : 'badge-gray'}`}>
+                        {animal.photos.length} foto{animal.photos.length !== 1 ? 's' : ''}
+                      </span>
+                    </td>
+                    <td>
+                      <Link
+                        href={`/camera?animalId=${animal.id}`}
+                        className="btn btn-primary btn-sm"
+                        style={{ width: 'auto' }}
+                      >
+                        Tirar foto
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

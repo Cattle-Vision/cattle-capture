@@ -8,27 +8,28 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     setLoading(true);
-    
     try {
       const res = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password })
+        body: JSON.stringify({ name, email, password }),
       });
-      
       const data = await res.json();
       if (res.ok) {
-        window.location.href = '/login'; 
+        setSuccess('Conta criada! Redirecionando...');
+        setTimeout(() => (window.location.href = '/login'), 1500);
       } else {
-        setError(data.error || 'Erro ao registrar');
+        setError(data.error || 'Erro ao cadastrar');
       }
-    } catch (err) {
+    } catch {
       setError('Erro de conexão');
     } finally {
       setLoading(false);
@@ -36,56 +37,72 @@ export default function RegisterPage() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-      <form onSubmit={handleSubmit} className="glass-panel animate-fade-in" style={{ padding: '3rem 2.5rem', width: '100%', maxWidth: '420px' }}>
-        <h2 style={{ fontSize: '2rem', fontWeight: 'bold', textAlign: 'center', marginBottom: '2rem', color: 'white' }}>Criar Conta</h2>
-        
-        {error && <div style={{ color: '#fca5a5', backgroundColor: 'rgba(239, 68, 68, 0.2)', padding: '0.75rem', borderRadius: '8px', marginBottom: '1.5rem', textAlign: 'center', fontSize: '0.875rem', border: '1px solid rgba(239, 68, 68, 0.3)' }}>{error}</div>}
+    <div className="auth-page">
+      <div className="container-sm" style={{ width: '100%' }}>
+        <div className="card">
+          <h1 style={{ fontSize: '1.375rem', fontWeight: 700, marginBottom: '0.25rem' }}>
+            Criar Conta
+          </h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
+            Cattle Capture — Cadastro de usuário
+          </p>
 
-        <div style={{ marginBottom: '1.5rem' }}>
-          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Nome Completo</label>
-          <input 
-            type="text" 
-            required 
-            className="input-premium"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Seu Nome"
-          />
+          {error && <div className="alert alert-error">{error}</div>}
+          {success && <div className="alert alert-success">{success}</div>}
+
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label htmlFor="name">Nome completo</label>
+              <input
+                id="name"
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="João Silva"
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="email">E-mail</label>
+              <input
+                id="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="seu@email.com"
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="password">Senha</label>
+              <input
+                id="password"
+                type="password"
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Mínimo 6 caracteres"
+              />
+            </div>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={loading}
+              style={{ marginTop: '0.5rem' }}
+            >
+              {loading ? 'Criando conta...' : 'Criar conta'}
+            </button>
+          </form>
+
+          <p style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+            Já tem conta?{' '}
+            <Link href="/login" style={{ color: 'var(--green)', fontWeight: 500 }}>
+              Entrar
+            </Link>
+          </p>
         </div>
-
-        <div style={{ marginBottom: '1.5rem' }}>
-          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>E-mail</label>
-          <input 
-            type="email" 
-            required 
-            className="input-premium"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="seu@email.com"
-          />
-        </div>
-
-        <div style={{ marginBottom: '2.5rem' }}>
-          <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Senha</label>
-          <input 
-            type="password" 
-            required 
-            className="input-premium"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-          />
-        </div>
-
-        <button type="submit" className="btn-premium" disabled={loading} style={{ marginBottom: '1.5rem', opacity: loading ? 0.7 : 1 }}>
-          {loading ? 'Cadastrando...' : 'Finalizar Cadastro'}
-        </button>
-
-        <p style={{ textAlign: 'center', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-          Já possui conta? <Link href="/login" style={{ color: 'var(--primary)', fontWeight: '600' }}>Fazer Login</Link>
-        </p>
-      </form>
+      </div>
     </div>
   );
 }

@@ -13,122 +13,159 @@ function CameraContent() {
   const [streamActive, setStreamActive] = useState(false);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [done, setDone] = useState(false);
 
   useEffect(() => {
     if (!animalId) {
-      setError('ID do animal não fornecido na URL. Por favor, acesse pelo Dashboard.');
+      setError('Animal não informado. Volte ao Dashboard e clique em "Tirar foto".');
       return;
     }
+    let currentStream: MediaStream | null = null;
 
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: 'environment' } 
-        });
+    navigator.mediaDevices
+      .getUserMedia({ video: { facingMode: 'environment' } })
+      .then((stream) => {
+        currentStream = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           setStreamActive(true);
         }
-      } catch (err: any) {
-        setError('Não foi possível acessar a câmera. Verifique as permissões (ou se está usando HTTPS).');
-      }
-    }
-    startCamera();
+      })
+      .catch(() => {
+        setError('Não foi possível acessar a câmera. Verifique as permissões do navegador.');
+      });
 
     return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
-        tracks.forEach(track => track.stop());
-      }
+      currentStream?.getTracks().forEach(t => t.stop());
     };
   }, [animalId]);
 
-  const handleCapture = async () => {
+  const handleCapture = () => {
     if (!videoRef.current || !canvasRef.current || !animalId) return;
 
-    // TODO: Integração ONNX (YOLO 26 nano) ocorrerá aqui antes do upload!
-    
-    // Simulação da captura do frame
     const canvas = canvasRef.current;
     const video = videoRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
+    canvas.getContext('2d')?.drawImage(video, 0, 0);
+
+    // TODO: aqui entrará a inferência do identifier.onnx (YOLO) antes de enviar
     canvas.toBlob(async (blob) => {
       if (!blob) return;
       setUploading(true);
-      
-      const formData = new FormData();
-      formData.append('file', blob, `animal_${animalId}.jpg`);
-      formData.append('animalId', animalId);
-
       try {
-        const res = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData
-        });
+        const form = new FormData();
+        form.append('file', blob, `animal_${animalId}_${Date.now()}.jpg`);
+        form.append('animalId', animalId);
+        const res = await fetch('/api/upload', { method: 'POST', body: form });
         if (res.ok) {
-          alert('IA validou e foto salva com sucesso!');
-          window.location.href = '/dashboard';
+          setDone(true);
         } else {
-          alert('Erro ao salvar foto.');
+          setError('Erro ao enviar foto. Tente novamente.');
         }
-      } catch (err) {
-        alert('Erro de conexão ao enviar a foto.');
+      } catch {
+        setError('Erro de conexão.');
       } finally {
         setUploading(false);
       }
     }, 'image/jpeg', 0.9);
   };
 
+  if (done) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: '1rem', padding: '2rem' }}>
+        <div style={{ fontSize: '3rem' }}>✅</div>
+        <h2 style={{ fontWeight: 700 }}>Foto salva com sucesso!</h2>
+        <Link href="/dashboard" className="btn btn-primary" style={{ width: 'auto' }}>
+          Voltar ao Dashboard
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-      <Link href="/dashboard" style={{ position: 'absolute', top: '20px', left: '20px', color: 'white', zIndex: 20, fontWeight: 'bold', background: 'rgba(0,0,0,0.5)', padding: '0.5rem 1rem', borderRadius: '8px' }}>
-        ← Voltar
-      </Link>
+      {/* Barra superior */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20,
+        display: 'flex', alignItems: 'center', gap: '1rem',
+        padding: '1rem', background: 'linear-gradient(to bottom, rgba(0,0,0,0.7), transparent)'
+      }}>
+        <Link href="/dashboard" style={{ color: 'white', fontSize: '0.9rem' }}>← Voltar</Link>
+        <span style={{ color: 'white', fontSize: '0.9rem', opacity: 0.8 }}>
+          Animal #{animalId}
+        </span>
+      </div>
 
+      {/* Erro */}
       {error && (
-        <div style={{ position: 'absolute', top: '80px', backgroundColor: '#ef4444', color: 'white', padding: '1rem', borderRadius: '8px', zIndex: 10, maxWidth: '80%', textAlign: 'center' }}>
+        <div style={{
+          position: 'absolute', top: '5rem', left: '50%', transform: 'translateX(-50%)',
+          background: '#dc2626', color: 'white', padding: '1rem 1.5rem', borderRadius: '8px',
+          zIndex: 20, textAlign: 'center', maxWidth: '80vw', fontSize: '0.9rem'
+        }}>
           {error}
         </div>
       )}
 
-      {/* Video Feed */}
-      <video 
-        ref={videoRef}
-        autoPlay 
-        playsInline
-        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-      />
+      {/* Feed da câmera */}
+      <video ref={videoRef} autoPlay playsInline muted
+        style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
 
-      {/* Visual Guide (Stencil) */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
-      }}>
-        <div style={{ width: '80%', maxWidth: '400px', height: '60%', border: '4px dashed rgba(52, 211, 153, 0.8)', borderRadius: '24px', boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.6)' }}></div>
-        <p style={{ color: 'white', marginTop: '2rem', fontSize: '1.2rem', fontWeight: 'bold', textShadow: '1px 1px 4px black', textAlign: 'center' }}>
-          Alinhe a traseira do animal no centro <br/> a exatamente 1 metro de distância.
-        </p>
-      </div>
+      {/* Guia visual */}
+      {streamActive && (
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none'
+        }}>
+          {/* Área escura ao redor */}
+          <div style={{
+            width: '72%', maxWidth: '380px', aspectRatio: '1 / 1.3',
+            border: '3px solid rgba(255,255,255,0.8)',
+            borderRadius: '12px',
+            boxShadow: '0 0 0 9999px rgba(0,0,0,0.5)'
+          }} />
+          <p style={{
+            color: 'white', marginTop: '1.5rem', fontSize: '0.9rem',
+            textAlign: 'center', textShadow: '0 1px 3px rgba(0,0,0,0.8)',
+            maxWidth: '280px'
+          }}>
+            Posicione a traseira do animal dentro do quadro.<br />
+            <strong>Distância: ~1 metro. Câmera reta.</strong>
+          </p>
+        </div>
+      )}
 
-      {/* Capture Button */}
+      {/* Botão de captura */}
       {streamActive && !error && (
-        <button 
-          onClick={handleCapture}
-          disabled={uploading}
-          style={{
-            position: 'absolute', bottom: '40px', width: '80px', height: '80px', borderRadius: '50%',
-            backgroundColor: uploading ? '#94a3b8' : '#34d399', border: '6px solid white', cursor: 'pointer',
-            boxShadow: '0 4px 10px rgba(0,0,0,0.3)', zIndex: 10, transition: 'background-color 0.2s'
-          }}
-        />
+        <div style={{ position: 'absolute', bottom: '2.5rem', left: 0, right: 0, display: 'flex', justifyContent: 'center', zIndex: 20 }}>
+          <button
+            onClick={handleCapture}
+            disabled={uploading}
+            style={{
+              width: '72px', height: '72px', borderRadius: '50%',
+              background: uploading ? '#9ca3af' : 'white',
+              border: '5px solid rgba(255,255,255,0.5)',
+              cursor: uploading ? 'not-allowed' : 'pointer',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+              outline: 'none'
+            }}
+            aria-label="Capturar foto"
+          />
+        </div>
+      )}
+
+      {uploading && (
+        <div style={{
+          position: 'absolute', bottom: '7rem', left: 0, right: 0,
+          textAlign: 'center', color: 'white', fontSize: '0.875rem',
+          textShadow: '0 1px 3px rgba(0,0,0,0.8)'
+        }}>
+          Enviando foto...
+        </div>
       )}
     </>
   );
@@ -136,8 +173,12 @@ function CameraContent() {
 
 export default function CameraPage() {
   return (
-    <div style={{ position: 'relative', width: '100vw', height: '100vh', backgroundColor: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      <Suspense fallback={<div style={{ color: 'white', marginTop: '50vh' }}>Carregando Câmera...</div>}>
+    <div style={{ position: 'relative', width: '100vw', height: '100vh', background: '#000', overflow: 'hidden' }}>
+      <Suspense fallback={
+        <div style={{ color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+          Carregando câmera...
+        </div>
+      }>
         <CameraContent />
       </Suspense>
     </div>

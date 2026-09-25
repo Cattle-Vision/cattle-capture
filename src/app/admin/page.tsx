@@ -3,68 +3,123 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
+interface Photo {
+  id: number;
+  filePath: string;
+  createdAt: string;
+}
+
+interface Animal {
+  id: number;
+  name: string;
+  breed: string;
+  sex: string;
+  weight: number;
+  age: number;
+  owner: { id: number; name: string; email: string };
+  photos: Photo[];
+}
+
 export default function AdminPage() {
-  const [animals, setAnimals] = useState<any[]>([]);
+  const [animals, setAnimals] = useState<Animal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch('/api/animals')
-      .then(res => res.json())
-      .then(data => {
-        if(Array.isArray(data)) setAnimals(data);
+    fetch('/api/admin/animals')
+      .then(async (res) => {
+        if (res.status === 403) {
+          window.location.href = '/login';
+          return;
+        }
+        const data = await res.json();
+        if (Array.isArray(data)) setAnimals(data);
+        else setError(data.error || 'Erro ao carregar');
       })
-      .catch(console.error);
+      .catch(() => setError('Erro de conexão'))
+      .finally(() => setLoading(false));
   }, []);
 
-  return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', padding: '2rem', backgroundColor: '#f9fafb', minHeight: '100vh' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 'bold', color: '#111827' }}>Painel Administrativo</h1>
-        <Link href="/" style={{ color: '#2563eb', textDecoration: 'none' }}>Voltar ao Início</Link>
-      </header>
+  const handleLogout = async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    window.location.href = '/login';
+  };
 
-      <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '1.5rem', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-        <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem', color: '#374151' }}>Registros Recentes de Captura</h2>
-        
-        {animals.length === 0 ? (
-          <p style={{ color: '#6b7280' }}>Nenhum animal cadastrado ainda.</p>
+  const totalFotos = animals.reduce((acc, a) => acc + a.photos.length, 0);
+
+  return (
+    <div style={{ minHeight: '100vh' }}>
+      <nav className="navbar">
+        <span className="navbar-brand">🐄 Cattle Capture — Admin</span>
+        <div className="navbar-links">
+          <button onClick={handleLogout} className="btn btn-outline btn-sm">
+            Sair
+          </button>
+        </div>
+      </nav>
+
+      <div className="container" style={{ paddingTop: '2rem' }}>
+        <h1 style={{ fontSize: '1.375rem', fontWeight: 700, marginBottom: '0.25rem' }}>Painel Administrativo</h1>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
+          {animals.length} animais cadastrados · {totalFotos} fotos capturadas
+        </p>
+
+        {error && <div className="alert alert-error">{error}</div>}
+
+        {loading ? (
+          <p style={{ color: 'var(--text-muted)' }}>Carregando...</p>
+        ) : animals.length === 0 ? (
+          <div className="card" style={{ textAlign: 'center', padding: '3rem' }}>
+            <p style={{ color: 'var(--text-muted)' }}>Nenhum animal registrado no sistema.</p>
+          </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                <th style={{ padding: '0.75rem' }}>ID</th>
-                <th style={{ padding: '0.75rem' }}>Raça</th>
-                <th style={{ padding: '0.75rem' }}>Peso (kg)</th>
-                <th style={{ padding: '0.75rem' }}>Fotos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {animals.map((animal) => (
-                <tr key={animal.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                  <td style={{ padding: '0.75rem' }}>{animal.id}</td>
-                  <td style={{ padding: '0.75rem' }}>{animal.breed}</td>
-                  <td style={{ padding: '0.75rem' }}>{animal.weight}</td>
-                  <td style={{ padding: '0.75rem' }}>
-                    {animal.photos?.length > 0 ? (
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        {animal.photos.map((photo: any) => (
-                          <a 
-                            key={photo.id}
-                            href={`/api/download?path=${photo.filePath}`} // Será tratado pelo backend ou next/server
-                            download
-                            style={{ padding: '0.25rem 0.5rem', backgroundColor: '#e5e7eb', borderRadius: '4px', textDecoration: 'none', color: '#111827', fontSize: '0.875rem' }}
-                          >
-                            Baixar Foto
-                          </a>
-                        ))}
-                      </div>
-                    ) : (
-                      <span style={{ color: '#9ca3af', fontSize: '0.875rem' }}>Sem fotos</span>
-                    )}
-                  </td>
+          <div className="card" style={{ padding: 0 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Animal</th>
+                  <th>Raça / Sexo</th>
+                  <th>Peso / Idade</th>
+                  <th>Dono</th>
+                  <th>Fotos</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {animals.map(animal => (
+                  <tr key={animal.id}>
+                    <td style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>#{animal.id}</td>
+                    <td style={{ fontWeight: 500 }}>{animal.name || `Animal #${animal.id}`}</td>
+                    <td>{animal.breed} · {animal.sex}</td>
+                    <td>{animal.weight} kg · {animal.age} m</td>
+                    <td style={{ fontSize: '0.875rem' }}>
+                      <div>{animal.owner.name}</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>{animal.owner.email}</div>
+                    </td>
+                    <td>
+                      {animal.photos.length === 0 ? (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>Sem fotos</span>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                          {animal.photos.map(photo => (
+                            <a
+                              key={photo.id}
+                              href={`/api/download?path=${encodeURIComponent(photo.filePath)}`}
+                              download
+                              className="btn btn-outline btn-sm"
+                              style={{ display: 'inline-block', width: 'auto' }}
+                            >
+                              ↓ Foto #{photo.id}
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

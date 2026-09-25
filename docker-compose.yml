@@ -4,9 +4,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # Mapeamento do banco de dados (SQLite persistente)
       - ./prisma:/app/prisma
-      # Mapeamento da pasta de armazenamento de fotos no host físico
       - ./storage/uploads:/app/storage/uploads
     environment:
       - DATABASE_URL=file:./dev.db
