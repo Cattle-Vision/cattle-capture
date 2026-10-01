@@ -60,8 +60,7 @@ function AnimalCard({ animal }: { animal: AnimalWithOwner }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-2">
           <p className="font-semibold text-slate-900 truncate">
-            {animal.name || 'Sem nome'}{' '}
-            <span className="text-slate-400 font-normal text-xs">#{animal.id}</span>
+            {animal.name || 'Sem nome'}
           </p>
           <span className="shrink-0 text-xs font-medium bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
             {animal.photos?.length ?? 0} foto{animal.photos?.length !== 1 ? 's' : ''}
@@ -116,7 +115,7 @@ function DesktopTable({ animals }: { animals: AnimalWithOwner[] }) {
             <tr key={a.id} className="hover:bg-slate-50 transition-colors">
               <td className="px-5 py-3">
                 <Link href={`/animal/${a.id}`} className="font-medium text-slate-900 hover:text-emerald-600 transition-colors">
-                  {a.name || 'Sem nome'} <span className="text-slate-400 font-normal text-xs">#{a.id}</span>
+                  {a.name || 'Sem nome'}
                 </Link>
               </td>
               <td className="px-5 py-3 text-slate-500">{a.owner?.name || a.owner?.email || '—'}</td>

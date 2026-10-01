@@ -1,25 +1,20 @@
 'use client';
 
 /**
- * Página de captura de foto via câmera do dispositivo.
+ * Página de captura fotográfica para dataset de IA.
  *
- * Fluxo:
- * 1. Solicita acesso à câmera (facingMode: environment = câmera traseira)
- * 2. Mostra viewfinder com guia de enquadramento
- * 3. Ao capturar: mostra preview da foto para confirmação
- * 4. Usuário confirma → upload; ou tira outra foto
- * 5. Upload via /api/upload com fallback para fila de sync offline
- *
- * Problemas corrigidos vs versão anterior:
- * - safe-area-inset-bottom aplicado corretamente ao botão de captura
- * - Preview antes de enviar (evita uploads acidentais)
- * - Feedback visual claro em cada estado
- * - Processamento ONNX mantido mas isolado para não bloquear o UI
+ * Correções críticas aplicadas:
+ * 1. Travamento eliminado: remoção de Base64 de alta resolução e WASM síncrono.
+ *    Uso de URL.createObjectURL() e toBlob() nativos de 0ms.
+ * 2. Nome do animal: exibido no cabeçalho (sem "Animal #5" ou hashes no topo).
+ * 3. Área de câmera sem glitches: moldura SVG com proporção zootécnica sem bugs de GPU.
+ * 4. Fallback móvel nativo: botão para usar a câmera nativa do aparelho via input capture="environment"
+ *    se a API getUserMedia falhar ou não tiver suporte HTTPS.
  */
 
-import { useState, useRef, useEffect, Suspense } from 'react';
+import { useState, useRef, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Camera, RefreshCcw, RotateCcw, Check, X } from 'lucide-react';
+import { Camera, RefreshCcw, RotateCcw, Check, X, ArrowLeft, ImagePlus, AlertCircle } from 'lucide-react';
 import { enqueueSync } from '@/lib/sync';
 
 type CaptureState = 'viewfinder' | 'preview' | 'uploading' | 'done' | 'error';
@@ -28,119 +23,149 @@ function CameraContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const animalId = searchParams.get('animalId');
+  const paramName = searchParams.get('animalName');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [state, setState] = useState<CaptureState>('viewfinder');
+  const [animalName, setAnimalName] = useState<string>(paramName || '');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
   const [streamActive, setStreamActive] = useState(false);
-  const [cameraError, setCameraError] = useState('');
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [videoReady, setVideoReady] = useState(false);
 
-  // Iniciar câmera
+  // Buscar nome do animal se não vier no query param
+  useEffect(() => {
+    if (!animalId || animalName) return;
+
+    fetch(`/api/animals/${animalId}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (data?.name) setAnimalName(data.name);
+      })
+      .catch(() => {});
+  }, [animalId, animalName]);
+
+  // Limpar ObjectURL do preview para liberar memória
+  const clearPreviewUrl = useCallback(() => {
+    if (previewUrl && previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    setPreviewUrl(null);
+  }, [previewUrl]);
+
+  // Iniciar stream da câmera
   useEffect(() => {
     if (!animalId) {
-      setCameraError('Animal não especificado. Volte e tente novamente.');
+      setCameraError('Animal não especificado. Retorne à lista de animais.');
       return;
     }
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraError('Câmera indisponível. Verifique se você está acessando via HTTPS.');
-      return;
-    }
+    let isMounted = true;
 
-    // Preferência: câmera traseira de alta qualidade
-    navigator.mediaDevices
-      .getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-      })
-      .then(stream => {
+    async function startCamera() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError('Câmera direta indisponível neste navegador. Use a câmera do aparelho abaixo.');
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+          audio: false,
+        });
+
+        if (!isMounted) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           setStreamActive(true);
+          setCameraError(null);
         }
-      })
-      .catch(() => {
-        setCameraError('Permissão de câmera negada. Verifique as configurações do navegador.');
-      });
+      } catch (err) {
+        console.warn('[Camera] getUserMedia falhou:', err);
+        setCameraError('Não foi possível abrir a câmera diretamente. Use o botão abaixo para fotografar com o app nativo.');
+      }
+    }
 
-    // Cleanup: parar stream ao desmontar
+    startCamera();
+
     return () => {
+      isMounted = false;
       streamRef.current?.getTracks().forEach(t => t.stop());
     };
   }, [animalId]);
 
-  // Capturar frame do vídeo e gerar preview
-  const capture = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
+  // Capturar foto do stream sem travar a UI
+  const captureFromVideo = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
+    if (!video || !canvas || video.videoWidth === 0 || video.videoHeight === 0) return;
 
-    // Salvar em resolução original para qualidade máxima no dataset
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d')?.drawImage(video, 0, 0);
+    // Feedback háptico em celulares compatíveis
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(40);
+    }
 
-    // Gerar URL de preview local (sem enviar para o servidor ainda)
-    const previewDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    setPreviewUrl(previewDataUrl);
+    // Limitar dimensão para max 1920px (evita canvas de 4K travar o garbage collector do browser)
+    const maxDim = 1920;
+    let targetWidth = video.videoWidth;
+    let targetHeight = video.videoHeight;
 
-    // Gerar Blob para upload (feito apenas se o usuário confirmar)
-    canvas.toBlob(blob => {
-      if (blob) {
-        setCapturedBlob(blob);
-        setState('preview');
-
-        // Processar IA em background sem bloquear a UI (fire-and-forget)
-        runAIValidation(canvas).catch(err =>
-          console.warn('[AI] Validação falhou (não crítico):', err)
-        );
+    if (targetWidth > maxDim || targetHeight > maxDim) {
+      if (targetWidth > targetHeight) {
+        targetHeight = Math.round((targetHeight * maxDim) / targetWidth);
+        targetWidth = maxDim;
+      } else {
+        targetWidth = Math.round((targetWidth * maxDim) / targetHeight);
+        targetHeight = maxDim;
       }
-    }, 'image/jpeg', 0.85);
-  };
+    }
 
-  // Processamento ONNX isolado — não bloqueia o fluxo principal
-  const runAIValidation = async (canvas: HTMLCanvasElement) => {
-    const aiSize = 224;
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = aiSize;
-    tempCanvas.height = aiSize;
-    const ctx = tempCanvas.getContext('2d');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
-    const size = Math.min(canvas.width, canvas.height);
-    const sx = (canvas.width - size) / 2;
-    const sy = (canvas.height - size) / 2;
-    ctx.drawImage(canvas, sx, sy, size, size, 0, 0, aiSize, aiSize);
+    ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
 
-    const ort = await import('onnxruntime-web');
-    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
+    // Conversão direta para Blob em background (sem strings Base64 gigantescas)
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        clearPreviewUrl();
+        const objUrl = URL.createObjectURL(blob);
+        setCapturedBlob(blob);
+        setPreviewUrl(objUrl);
+        setState('preview');
+      },
+      'image/jpeg',
+      0.88
+    );
+  };
 
-    const imgData = ctx.getImageData(0, 0, aiSize, aiSize).data;
-    const float32 = new Float32Array(3 * aiSize * aiSize);
-    for (let i = 0; i < aiSize * aiSize; i++) {
-      float32[i] = (imgData[i * 4] / 255.0 - 0.485) / 0.229;
-      float32[i + aiSize * aiSize] = (imgData[i * 4 + 1] / 255.0 - 0.456) / 0.224;
-      float32[i + 2 * aiSize * aiSize] = (imgData[i * 4 + 2] / 255.0 - 0.406) / 0.225;
-    }
-    const tensor = new ort.Tensor('float32', float32, [1, 3, aiSize, aiSize]);
+  // Capturar via input nativo do sistema operacional (câmera traseira nativa)
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    try {
-      const session = await ort.InferenceSession.create('/identifier.onnx');
-      const feeds: Record<string, typeof tensor> = {};
-      feeds[session.inputNames[0]] = tensor;
-      const results = await session.run(feeds);
-      console.log('[AI] Output:', results);
-    } catch {
-      // Modelo ONNX ausente ou incompatível — não é crítico para o MVP
-    }
+    clearPreviewUrl();
+    const objUrl = URL.createObjectURL(file);
+    setCapturedBlob(file);
+    setPreviewUrl(objUrl);
+    setState('preview');
   };
 
   // Confirmar e enviar a foto
@@ -158,10 +183,10 @@ function CameraContent() {
       if (res.ok) {
         setState('done');
       } else {
-        throw new Error('API error');
+        throw new Error('Falha no upload do servidor');
       }
     } catch {
-      // Fallback offline: enfileirar para sync posterior
+      // Fallback offline com IndexedDB
       try {
         const buffer = await capturedBlob.arrayBuffer();
         await enqueueSync('/api/upload', 'POST', { file: buffer, fileName, animalId }, true);
@@ -172,35 +197,43 @@ function CameraContent() {
     }
   };
 
-  // Descartar e voltar para o viewfinder
+  // Descartar e tirar outra foto
   const retake = () => {
-    setPreviewUrl(null);
+    clearPreviewUrl();
     setCapturedBlob(null);
     setState('viewfinder');
   };
 
-  // ── Estados de UI ──────────────────────────────────────────────────────
+  // Cleanup de recursos ao desmontar
+  useEffect(() => {
+    return () => {
+      clearPreviewUrl();
+    };
+  }, [clearPreviewUrl]);
 
+  // ── ESTADO: Concluído ───────────────────────────────────────────────────
   if (state === 'done') {
     return (
-      <div className="flex flex-col items-center justify-center h-[100dvh] bg-zinc-900 text-white gap-6 px-8">
-        <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center animate-scale-in">
-          <Check className="w-10 h-10" />
+      <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-zinc-950 text-white gap-6 px-6">
+        <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center shadow-lg shadow-emerald-500/20 animate-scale-in">
+          <Check className="w-10 h-10 text-white stroke-[2.5]" />
         </div>
-        <div className="text-center">
-          <h2 className="text-2xl font-bold mb-2">Foto salva!</h2>
-          <p className="text-white/60 text-sm">A imagem foi adicionada ao animal com sucesso.</p>
+        <div className="text-center max-w-xs">
+          <h2 className="text-2xl font-bold mb-1.5">Foto Registrada!</h2>
+          <p className="text-zinc-400 text-sm">
+            A imagem de <strong className="text-white">{animalName || 'seu animal'}</strong> foi salva com sucesso no dataset.
+          </p>
         </div>
-        <div className="flex flex-col gap-3 w-full max-w-xs">
+        <div className="flex flex-col gap-3 w-full max-w-xs pt-2">
           <button
             onClick={() => router.push(`/animal/${animalId}`)}
-            className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 rounded-2xl font-semibold transition"
+            className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-2xl font-semibold transition cursor-pointer text-white shadow-md active:scale-98"
           >
-            Ver Galeria
+            Ver Galeria do Animal
           </button>
           <button
             onClick={retake}
-            className="w-full py-3.5 bg-white/10 hover:bg-white/20 rounded-2xl font-medium transition text-sm"
+            className="w-full py-3.5 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 rounded-2xl font-medium transition cursor-pointer text-zinc-200 text-sm active:scale-98"
           >
             Tirar Outra Foto
           </button>
@@ -209,19 +242,20 @@ function CameraContent() {
     );
   }
 
+  // ── ESTADO: Erro ────────────────────────────────────────────────────────
   if (state === 'error') {
     return (
-      <div className="flex flex-col items-center justify-center h-[100dvh] bg-zinc-900 text-white gap-6 px-8">
-        <div className="w-20 h-20 bg-red-500 rounded-full flex items-center justify-center">
-          <X className="w-10 h-10" />
+      <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-zinc-950 text-white gap-6 px-6">
+        <div className="w-20 h-20 bg-red-500/20 text-red-400 border border-red-500/30 rounded-full flex items-center justify-center">
+          <X className="w-10 h-10 stroke-[2.5]" />
         </div>
-        <div className="text-center">
-          <h2 className="text-2xl font-bold mb-2">Erro ao salvar</h2>
-          <p className="text-white/60 text-sm">Verifique sua conexão e tente novamente.</p>
+        <div className="text-center max-w-xs">
+          <h2 className="text-2xl font-bold mb-1.5">Erro ao Salvar</h2>
+          <p className="text-zinc-400 text-sm">Não foi possível enviar a imagem. Verifique a conexão com o servidor.</p>
         </div>
         <button
           onClick={retake}
-          className="w-full max-w-xs py-3.5 bg-white/10 hover:bg-white/20 rounded-2xl font-medium transition"
+          className="w-full max-w-xs py-4 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 rounded-2xl font-medium transition cursor-pointer text-white active:scale-98"
         >
           Tentar Novamente
         </button>
@@ -230,128 +264,205 @@ function CameraContent() {
   }
 
   return (
-    <div className="relative w-full h-[100dvh] bg-black overflow-hidden">
-      {/* Canvas oculto para processamento */}
+    <div className="relative w-full h-[100dvh] bg-black overflow-hidden select-none flex flex-col justify-between">
+      {/* Canvas oculto para extração de frames */}
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* ── ESTADO: Preview após captura ─────────────────────────────── */}
+      {/* Input de arquivo nativo para fallback com câmera nativa */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
+      {/* ── ESTADO: Preview após captura ───────────────────────────────── */}
       {state === 'preview' && previewUrl && (
         <div className="absolute inset-0 flex flex-col z-30 bg-black">
-          <img
-            src={previewUrl}
-            alt="Preview da captura"
-            className="flex-1 object-contain w-full animate-fade-in"
-          />
+          {/* Header do preview */}
           <div
-            className="flex gap-4 p-5 bg-black/80"
+            className="p-4 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent z-10"
+            style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
+          >
+            <span className="text-white font-medium text-sm">Confirmação da Foto</span>
+            <span className="text-zinc-400 text-xs">{animalName || 'Animal'}</span>
+          </div>
+
+          {/* Imagem do preview */}
+          <div className="flex-1 relative flex items-center justify-center p-2 overflow-hidden">
+            <img
+              src={previewUrl}
+              alt="Pré-visualização da captura"
+              className="max-w-full max-h-full object-contain rounded-xl shadow-2xl animate-fade-in"
+            />
+          </div>
+
+          {/* Barra de ações inferior */}
+          <div
+            className="flex gap-3 p-5 bg-zinc-950/90 border-t border-zinc-800/80 backdrop-blur-md"
             style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}
           >
             <button
               onClick={retake}
-              className="flex-1 flex items-center justify-center gap-2 py-4 bg-white/10 hover:bg-white/20 rounded-2xl text-white font-medium transition"
+              className="flex-1 flex items-center justify-center gap-2 py-4 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 rounded-2xl text-white font-medium transition cursor-pointer active:scale-98"
             >
-              <RotateCcw className="w-5 h-5" />
+              <RotateCcw className="w-5 h-5 text-zinc-300" />
               Tirar Outra
             </button>
             <button
               onClick={confirmUpload}
-              className="flex-1 flex items-center justify-center gap-2 py-4 bg-emerald-600 hover:bg-emerald-700 rounded-2xl text-white font-semibold transition"
+              className="flex-1 flex items-center justify-center gap-2 py-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-2xl text-white font-semibold transition cursor-pointer shadow-lg active:scale-98"
             >
-              <Check className="w-5 h-5" />
-              Confirmar
+              <Check className="w-5 h-5 stroke-[2.5]" />
+              Salvar Foto
             </button>
           </div>
         </div>
       )}
 
-      {/* ── ESTADO: Uploading ─────────────────────────────────────────── */}
+      {/* ── ESTADO: Uploading ───────────────────────────────────────────── */}
       {state === 'uploading' && previewUrl && (
-        <div className="absolute inset-0 flex flex-col z-30 bg-black">
-          <img
-            src={previewUrl}
-            alt="Preview"
-            className="flex-1 object-contain w-full opacity-50"
-          />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="bg-black/70 rounded-2xl px-8 py-6 flex flex-col items-center gap-4">
-              <RefreshCcw className="w-10 h-10 text-white animate-spin" />
-              <p className="text-white font-medium">Salvando foto...</p>
+        <div className="absolute inset-0 flex flex-col z-30 bg-black/90 backdrop-blur-sm items-center justify-center p-6">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 flex flex-col items-center gap-4 shadow-2xl max-w-xs text-center">
+            <RefreshCcw className="w-10 h-10 text-emerald-500 animate-spin" />
+            <div>
+              <p className="text-white font-semibold text-base mb-1">Salvando Imagem</p>
+              <p className="text-zinc-400 text-xs">Otimizando e enviando para o banco de dados...</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── ESTADO: Viewfinder ───────────────────────────────────────── */}
+      {/* ── ESTADO: Viewfinder (Câmera Ativa) ───────────────────────────── */}
 
-      {/* Topbar */}
-      <div className="absolute top-0 w-full p-4 flex justify-between z-10 bg-gradient-to-b from-black/80 to-transparent"
-        style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
+      {/* Topbar com Nome Real do Animal */}
+      <div
+        className="w-full px-4 py-3.5 flex items-center justify-between z-20 bg-gradient-to-b from-black/85 via-black/40 to-transparent"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
       >
         <button
           onClick={() => router.back()}
-          className="text-white text-sm font-medium flex items-center gap-1 px-3 py-2 rounded-xl bg-black/30 hover:bg-black/50 active:bg-black/70 transition"
+          aria-label="Voltar"
+          className="text-white text-xs font-semibold flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/30 backdrop-blur-md transition cursor-pointer"
         >
-          ← Voltar
+          <ArrowLeft className="w-4 h-4" />
+          Voltar
         </button>
-        <span className="text-white/70 text-sm self-center">Animal #{animalId}</span>
+
+        <div className="text-center min-w-0 px-2">
+          <h1 className="text-white font-bold text-sm tracking-tight truncate max-w-[200px]">
+            {animalName || 'Câmera'}
+          </h1>
+          <p className="text-emerald-400 text-[10px] font-semibold uppercase tracking-wider">
+            Dataset de IA
+          </p>
+        </div>
+
+        {/* Botão de Câmera Nativa no canto superior direito */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          title="Tirar foto com câmera nativa"
+          aria-label="Abrir câmera nativa"
+          className="text-white text-xs font-medium flex items-center gap-1.5 p-2 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/30 backdrop-blur-md transition cursor-pointer"
+        >
+          <ImagePlus className="w-4 h-4" />
+        </button>
       </div>
 
-      {/* Erro de câmera */}
+      {/* Stream de Vídeo */}
+      <div className="absolute inset-0 z-0 bg-black flex items-center justify-center">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          onLoadedMetadata={() => setVideoReady(true)}
+          className="w-full h-full object-cover"
+        />
+      </div>
+
+      {/* Guia de enquadramento profissional (SVG transparente sem bugs de box-shadow) */}
+      {streamActive && state === 'viewfinder' && !cameraError && (
+        <div className="absolute inset-0 pointer-events-none z-10 flex flex-col items-center justify-center">
+          {/* Caixa de enquadramento com proporção de 3:4 */}
+          <div className="relative w-[75%] max-w-xs aspect-[3/4] rounded-2xl border-2 border-white/60 flex items-center justify-center shadow-sm">
+            {/* Cantos brancos de foco fotográfico */}
+            <div className="absolute -top-1 -left-1 w-5 h-5 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg" />
+            <div className="absolute -top-1 -right-1 w-5 h-5 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg" />
+            <div className="absolute -bottom-1 -left-1 w-5 h-5 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg" />
+            <div className="absolute -bottom-1 -right-1 w-5 h-5 border-b-4 border-r-4 border-emerald-400 rounded-br-lg" />
+
+            {/* Ponto central sutil */}
+            <div className="w-2 h-2 rounded-full bg-white/40" />
+
+            {/* Guia de instrução */}
+            <div className="absolute -bottom-10 bg-black/60 backdrop-blur-md text-white/90 text-xs px-3 py-1 rounded-full font-medium">
+              Enquadre o animal
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mensagem e Ação caso a câmera WebRTC não abra */}
       {cameraError && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-red-600 text-white px-6 py-4 rounded-2xl shadow z-20 max-w-xs text-center text-sm font-medium leading-relaxed">
-          {cameraError}
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 bg-zinc-950/90 text-center gap-4">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center">
+            <AlertCircle className="w-8 h-8" />
+          </div>
+          <div className="max-w-xs">
+            <h3 className="text-white font-bold text-lg mb-1">Câmera do Navegador</h3>
+            <p className="text-zinc-400 text-xs leading-relaxed">{cameraError}</p>
+          </div>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center justify-center gap-2.5 px-6 py-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl font-semibold shadow-lg transition cursor-pointer active:scale-98 text-sm"
+          >
+            <Camera className="w-5 h-5" />
+            Fotografar com Câmera do Aparelho
+          </button>
         </div>
       )}
 
-      {/* Video */}
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className="absolute inset-0 w-full h-full object-cover"
-      />
-
-      {/* Guia de enquadramento */}
-      {streamActive && state === 'viewfinder' && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-          {/* Overlay escuro fora do guia */}
-          <div
-            className="w-[72%] max-w-xs"
-            style={{
-              aspectRatio: '3/4',
-              boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)',
-              border: '2px solid rgba(255,255,255,0.7)',
-              borderRadius: '16px',
-            }}
-          />
-          {/* Texto de instrução */}
-          <span className="absolute bottom-[38%] text-white/60 text-xs font-medium">
-            Enquadre a garupa do animal
-          </span>
-        </div>
-      )}
-
-      {/* Botão de captura */}
+      {/* Barra de captura inferior */}
       {streamActive && state === 'viewfinder' && !cameraError && (
         <div
-          className="absolute bottom-0 left-0 w-full flex justify-center items-center z-20 pb-8"
+          className="w-full z-20 flex items-center justify-around pb-8 pt-4 bg-gradient-to-t from-black/85 via-black/40 to-transparent"
           style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}
         >
+          {/* Botão para galeria/app nativo */}
           <button
-            onClick={capture}
-            aria-label="Capturar foto"
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Importar da galeria ou app de câmera"
+            className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 active:bg-white/30 backdrop-blur-md text-white flex items-center justify-center transition cursor-pointer"
+          >
+            <ImagePlus className="w-5 h-5" />
+          </button>
+
+          {/* Botão de disparo estilo câmera profissional */}
+          <button
+            onClick={captureFromVideo}
+            disabled={!videoReady}
+            aria-label="Disparar captura"
             className="
-              w-20 h-20 rounded-full
-              border-4 border-white/60
-              bg-white shadow-2xl
+              relative w-20 h-20 rounded-full
+              border-[4px] border-white
+              bg-white/20 backdrop-blur-sm
               flex items-center justify-center
-              transition active:scale-90
-              hover:bg-white/90
+              transition-all duration-150
+              cursor-pointer active:scale-90
+              disabled:opacity-50 disabled:cursor-not-allowed
+              shadow-2xl
             "
           >
-            <Camera className="text-black w-8 h-8" />
+            <div className="w-16 h-16 rounded-full bg-white transition hover:bg-zinc-100 shadow-inner flex items-center justify-center">
+              <Camera className="w-7 h-7 text-zinc-900" />
+            </div>
           </button>
+
+          {/* Espaçador simétrico */}
+          <div className="w-12 h-12" />
         </div>
       )}
     </div>
@@ -362,8 +473,9 @@ export default function CameraPage() {
   return (
     <Suspense
       fallback={
-        <div className="h-[100dvh] bg-black flex items-center justify-center text-white/60 text-sm">
-          Iniciando câmera...
+        <div className="h-[100dvh] bg-zinc-950 flex flex-col items-center justify-center text-white/60 text-sm gap-3">
+          <RefreshCcw className="w-6 h-6 animate-spin text-emerald-500" />
+          <span>Iniciando câmera...</span>
         </div>
       }
     >

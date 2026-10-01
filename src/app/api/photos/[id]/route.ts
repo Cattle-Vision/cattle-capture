@@ -11,7 +11,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   try {
     const { id } = await params;
     const photo = await prisma.photo.findUnique({
-      where: { id: Number(id) },
+      where: { id },
       include: { animal: true }
     });
 

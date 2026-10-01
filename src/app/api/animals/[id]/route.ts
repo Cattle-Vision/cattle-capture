@@ -20,7 +20,7 @@ export async function GET(
   try {
     const { id } = await params;
     const animal = await prisma.animal.findUnique({
-      where: { id: Number(id) },
+      where: { id },
       include: { photos: { orderBy: { createdAt: 'desc' } } },
     });
 
@@ -51,7 +51,7 @@ export async function DELETE(
   try {
     const { id } = await params;
     const animal = await prisma.animal.findUnique({
-      where: { id: Number(id) },
+      where: { id },
       include: { photos: true },
     });
 

@@ -17,7 +17,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Arquivo ausente' }, { status: 400 });
     }
 
-    const animal = await prisma.animal.findUnique({ where: { id: Number(animalId) } });
+    const animal = await prisma.animal.findUnique({ where: { id: animalId } });
     if (!animal || animal.ownerId !== Number(session.user.id)) {
       return NextResponse.json({ error: 'Proibido' }, { status: 403 });
     }
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
 
     const photo = await prisma.photo.create({
       data: {
-        animalId: Number(animalId),
+        animalId: animalId,
         filePath: `/storage/uploads/${filename}`,
       }
     });

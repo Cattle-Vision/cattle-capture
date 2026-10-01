@@ -5,15 +5,15 @@
  */
 
 export interface Photo {
-  id: number;
-  animalId?: number;
+  id: string;
+  animalId?: string;
   /** Caminho relativo salvo no banco: `/storage/uploads/<filename>` */
   filePath: string;
   createdAt?: string; // ISO string após serialização JSON
 }
 
 export interface Animal {
-  id: number;
+  id: string;
   name: string;
   breed: string;
   sex: string;

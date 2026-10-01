@@ -64,23 +64,25 @@ function AnimalCard({ animal }: { animal: Animal }) {
           <h3 className="font-bold text-slate-900 text-base truncate">
             {animal.name || 'Sem Nome'}
           </h3>
-          <span className="text-xs text-slate-400 shrink-0 ml-2">#{animal.id}</span>
+          <span className="text-xs font-medium px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md shrink-0 ml-2">
+            {animal.breed}
+          </span>
         </div>
         <p className="text-sm text-slate-500 mb-4">
-          {animal.breed} • {animal.sex} • {animal.weight}kg
+          {animal.sex} • {animal.weight}kg • {animal.age} meses
         </p>
 
         <div className="flex gap-2">
           <Link
             href={`/animal/${animal.id}`}
-            className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium transition active:scale-[0.98]"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 text-sm font-medium transition cursor-pointer active:scale-[0.98]"
           >
             Ver Perfil
             <ChevronRight className="w-3.5 h-3.5" />
           </Link>
           <Link
-            href={`/camera?animalId=${animal.id}`}
-            className="flex items-center justify-center p-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition active:scale-[0.98]"
+            href={`/camera?animalId=${animal.id}&animalName=${encodeURIComponent(animal.name || 'Animal')}`}
+            className="flex items-center justify-center p-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white transition cursor-pointer active:scale-[0.98]"
             aria-label="Capturar foto"
           >
             <Camera className="w-4 h-4" />

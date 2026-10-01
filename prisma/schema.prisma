@@ -17,7 +17,7 @@ model User {
 }
 
 model Animal {
-  id      Int     @id @default(autoincrement())
+  id      String  @id @default(cuid())
   name    String  @default("")
   breed   String
   sex     String
@@ -29,8 +29,8 @@ model Animal {
 }
 
 model Photo {
-  id        Int      @id @default(autoincrement())
-  animalId  Int
+  id        String   @id @default(cuid())
+  animalId  String
   animal    Animal   @relation(fields: [animalId], references: [id], onDelete: Cascade)
   filePath  String
   createdAt DateTime @default(now())

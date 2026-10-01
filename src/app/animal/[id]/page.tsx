@@ -14,7 +14,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Camera, Scale, Calendar, Tag, VenetianMask } from 'lucide-react';
+import { ArrowLeft, Camera, Scale, Calendar, Tag, Sparkles } from 'lucide-react';
 import PhotoGrid from '@/components/PhotoGrid';
 import PhotoLightbox from '@/components/PhotoLightbox';
 import { useToast } from '@/components/ui/Toast';
@@ -78,7 +78,7 @@ export default function AnimalProfilePage() {
   }, [id, router]);
 
   // Delete de foto com confirmação não-bloqueante
-  const handleDelete = async (photoId: number) => {
+  const handleDelete = async (photoId: string) => {
     const ok = await confirm('Tem certeza que quer apagar esta foto? Esta ação não pode ser desfeita.');
     if (!ok) return;
 
@@ -111,13 +111,15 @@ export default function AnimalProfilePage() {
     );
   }
 
+  const cameraUrl = `/camera?animalId=${animal.id}&animalName=${encodeURIComponent(animal.name || 'Animal')}`;
+
   return (
     <div className="min-h-[100dvh] bg-slate-50 flex flex-col">
       {/* Header sticky */}
       <header className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-3 sticky top-0 z-20 shadow-sm">
         <button
           onClick={() => router.push('/dashboard')}
-          aria-label="Voltar"
+          aria-label="Voltar ao painel"
           className="p-2 rounded-xl hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
         >
           <ArrowLeft className="w-5 h-5 text-slate-700" />
@@ -126,11 +128,11 @@ export default function AnimalProfilePage() {
           <h1 className="text-base font-bold text-slate-900 truncate">
             {animal.name || 'Animal sem nome'}
           </h1>
-          <p className="text-xs text-slate-400">#{animal.id} • {animal.breed}</p>
+          <p className="text-xs text-slate-500 font-medium">{animal.breed} • {animal.sex}</p>
         </div>
         {/* Botão câmera no header — visível em desktop */}
         <Link
-          href={`/camera?animalId=${animal.id}`}
+          href={cameraUrl}
           className="hidden sm:flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition active:scale-95 shrink-0"
         >
           <Camera className="w-4 h-4" />
@@ -141,12 +143,17 @@ export default function AnimalProfilePage() {
       <main className="flex-1 p-4 sm:p-6 max-w-4xl mx-auto w-full flex flex-col gap-6 pb-28 sm:pb-6">
         {/* Card de informações */}
         <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
-          <h2 className="text-xl font-bold text-slate-900 mb-4">
-            {animal.name || 'Sem nome'} <span className="text-slate-300 font-normal text-base">#{animal.id}</span>
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-slate-900">
+              {animal.name || 'Sem nome'}
+            </h2>
+            <span className="text-xs font-medium px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg">
+              {animal.breed}
+            </span>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <InfoCard icon={<Tag className="w-4 h-4" />} label="Raça" value={animal.breed} />
-            <InfoCard icon={<VenetianMask className="w-4 h-4" />} label="Sexo" value={animal.sex} />
+            <InfoCard icon={<Sparkles className="w-4 h-4" />} label="Sexo" value={animal.sex} />
             <InfoCard icon={<Scale className="w-4 h-4" />} label="Peso" value={`${animal.weight} kg`} />
             <InfoCard icon={<Calendar className="w-4 h-4" />} label="Idade" value={`${animal.age} meses`} />
           </div>
@@ -156,9 +163,9 @@ export default function AnimalProfilePage() {
         <div>
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-base font-bold text-slate-800">
-              Galeria
-              <span className="ml-2 text-xs font-medium bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
-                {animal.photos?.length ?? 0} fotos
+              Galeria de Fotos
+              <span className="ml-2 text-xs font-semibold bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full">
+                {animal.photos?.length ?? 0}
               </span>
             </h3>
           </div>
@@ -177,8 +184,8 @@ export default function AnimalProfilePage() {
         style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
       >
         <Link
-          href={`/camera?animalId=${animal.id}`}
-          className="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white py-3.5 rounded-2xl text-base font-semibold transition active:scale-[0.98]"
+          href={cameraUrl}
+          className="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white py-3.5 rounded-2xl text-base font-semibold transition active:scale-[0.98] shadow-md"
         >
           <Camera className="w-5 h-5" />
           Capturar Nova Foto
