@@ -1,8 +1,203 @@
 @import "tailwindcss";
+/* Fonte Inter carregada via <link> no layout.tsx */
 
-/* Limpeza do boilerplate nativo para evitar os warnings falsos do Turbopack v16 */
+
+/* ── Dialog / Modal (Lightbox) ── */
+dialog {
+  /* Reset dos estilos padrão do browser */
+  position: fixed;
+  inset: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  max-width: 100vw;
+  max-height: 100vh;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.95);
+  backdrop-filter: blur(4px);
+}
+
+
+
+/* ============================================================
+   DESIGN SYSTEM — cattle-capture
+   Variáveis CSS globais, tipografia e utilitários base.
+   Todos os tokens ficam aqui para uso consistente em todo o app.
+   ============================================================ */
+
+/* Fonte Inter importada no topo do arquivo */
+
+/* ── Tokens de Cor ── */
+:root {
+  /* Verde primário (marca) */
+  --color-brand: #16a34a;
+  --color-brand-light: #22c55e;
+  --color-brand-dark: #15803d;
+  --color-brand-muted: #dcfce7;
+
+  /* Neutros */
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+
+  /* Texto */
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94a3b8;
+
+  /* Status */
+  --color-error: #dc2626;
+  --color-error-bg: #fef2f2;
+  --color-success: #16a34a;
+
+  /* Sombras */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+}
+
+/* ── Reset Base ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* Altura dinâmica do viewport — corrige o bug do 100vh no Safari iOS */
+  height: 100%;
+  height: -webkit-fill-available;
+}
+
 body {
-  font-family: Arial, Helvetica, sans-serif;
-  background-color: #fafafa;
-  color: #171717;
+  /* System font stack — Inter disponível em macOS/iOS/Windows 11 nativamente */
+  font-family: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100%;
+  min-height: -webkit-fill-available;
+
+  /* Previne o overscroll elástico que causa visual ruim em iOS */
+  overscroll-behavior-y: none;
+}
+
+/* ── Inputs — Previne zoom automático no iOS (font-size deve ser ≥ 16px) ── */
+input,
+textarea,
+select {
+  font-size: 16px;
+  font-family: inherit;
+}
+
+/* ── Touch targets mínimos (WCAG 2.5.5) ── */
+button,
+a,
+[role="button"] {
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
+}
+
+/* Botões menores têm padding extra para garantir área de toque */
+.touch-target {
+  position: relative;
+}
+.touch-target::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+/* ── Scrollbar estilizada (desktop) ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 3px;
+}
+
+/* ── Animações ── */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.25s ease-out;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.2s ease-out;
+}
+
+/* ── Skeleton Loading ── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-border) 25%,
+    #f1f5f9 50%,
+    var(--color-border) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Utilitários safe-area ── */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
 }

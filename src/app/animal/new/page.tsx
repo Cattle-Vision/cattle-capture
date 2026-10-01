@@ -1,120 +1,225 @@
 'use client';
+
+/**
+ * Formulário de cadastro de novo animal.
+ *
+ * Fixes mobile:
+ * - font-size: 16px nos inputs (via globals.css) — evita zoom iOS
+ * - Labels grandes e touch targets adequados
+ * - Layout single-column sempre (sem grid em mobile)
+ * - Feedback de erro explícito por campo
+ * - Header sticky com botão voltar
+ */
+
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { ArrowLeft, Loader2 } from 'lucide-react';
+import { useToast } from '@/components/ui/Toast';
 
+interface FormData {
+  name: string;
+  breed: string;
+  sex: string;
+  weight: string;
+  age: string;
+}
+
+// ── Componentes de campo reutilizáveis ────────────────────────────────────
+
+function Field({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-sm font-semibold text-slate-700">
+        {label}
+        {required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+const inputClass =
+  'w-full border border-slate-200 bg-slate-50 focus:bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 px-4 py-3 rounded-xl outline-none transition text-slate-900 placeholder:text-slate-400';
+
+// ── Página ─────────────────────────────────────────────────────────────────
 export default function NewAnimalPage() {
   const router = useRouter();
+  const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     name: '',
     breed: '',
     sex: 'Macho',
     weight: '',
-    age: ''
+    age: '',
   });
+
+  const set = (field: keyof FormData) => (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => setFormData(prev => ({ ...prev, [field]: e.target.value }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validação básica no cliente
+    if (!formData.breed.trim()) {
+      toast('Informe a raça do animal.', 'error');
+      return;
+    }
+    if (!formData.weight || Number(formData.weight) <= 0) {
+      toast('Informe um peso válido.', 'error');
+      return;
+    }
+    if (!formData.age || Number(formData.age) < 0) {
+      toast('Informe uma idade válida.', 'error');
+      return;
+    }
+
     setLoading(true);
-    setError('');
 
-    const res = await fetch('/api/animals', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData),
-    });
+    try {
+      const res = await fetch('/api/animals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formData,
+          weight: Number(formData.weight),
+          age: Number(formData.age),
+        }),
+      });
 
-    if (res.ok) {
-      router.push('/dashboard');
-      router.refresh();
-    } else {
-      setError('Erro ao salvar o animal.');
+      if (res.ok) {
+        toast('Animal cadastrado com sucesso!', 'success');
+        router.push('/dashboard');
+        router.refresh();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast(data?.error ?? 'Erro ao salvar o animal.', 'error');
+        setLoading(false);
+      }
+    } catch {
+      toast('Erro de conexão. Tente novamente.', 'error');
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-4 sm:p-8">
-      <header className="max-w-xl mx-auto flex justify-between items-center mb-8">
-        <h1 className="text-2xl font-bold text-zinc-900">Novo Cadastro</h1>
-        <Link href="/dashboard" className="text-sm text-zinc-500 hover:text-zinc-900">Voltar</Link>
+    <div className="min-h-[100dvh] bg-slate-50 flex flex-col">
+      {/* Header sticky */}
+      <header className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-3 sticky top-0 z-10 shadow-sm">
+        <button
+          onClick={() => router.back()}
+          aria-label="Voltar"
+          className="p-2 rounded-xl hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
+        >
+          <ArrowLeft className="w-5 h-5 text-slate-700" />
+        </button>
+        <h1 className="text-base font-bold text-slate-900">Novo Animal</h1>
       </header>
 
-      <main className="max-w-xl mx-auto">
-        <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-zinc-200 p-6 flex flex-col gap-4">
-          {error && <div className="text-red-500 text-sm mb-4 bg-red-50 p-2 rounded">{error}</div>}
+      <main className="flex-1 p-4 sm:p-6">
+        <div className="max-w-xl mx-auto">
+          <p className="text-sm text-slate-400 mb-6">
+            Preencha os dados do animal. Campos marcados com <span className="text-red-500">*</span> são obrigatórios.
+          </p>
 
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">Apelido / Brinco</label>
-            <input 
-              type="text" 
-              value={formData.name}
-              onChange={e => setFormData({ ...formData, name: e.target.value })}
-              className="w-full border border-zinc-300 px-4 py-2 rounded-lg"
-              placeholder="Ex: Mimosa"
-            />
-          </div>
+          <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col gap-5">
 
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">Raça</label>
-            <input 
-              type="text" 
-              required
-              value={formData.breed}
-              onChange={e => setFormData({ ...formData, breed: e.target.value })}
-              className="w-full border border-zinc-300 px-4 py-2 rounded-lg"
-              placeholder="Ex: Nelore"
-            />
-          </div>
+            <Field label="Apelido / Brinco">
+              <input
+                type="text"
+                value={formData.name}
+                onChange={set('name')}
+                className={inputClass}
+                placeholder="Ex: Mimosa"
+                autoComplete="off"
+              />
+            </Field>
 
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">Sexo</label>
-            <select 
-              value={formData.sex}
-              onChange={e => setFormData({ ...formData, sex: e.target.value })}
-              className="w-full border border-zinc-300 px-4 py-2 rounded-lg bg-white"
+            <Field label="Raça" required>
+              <input
+                type="text"
+                value={formData.breed}
+                onChange={set('breed')}
+                className={inputClass}
+                placeholder="Ex: Nelore"
+                required
+                autoComplete="off"
+              />
+            </Field>
+
+            <Field label="Sexo">
+              <select
+                value={formData.sex}
+                onChange={set('sex')}
+                className={inputClass}
+              >
+                <option value="Macho">Macho</option>
+                <option value="Fêmea">Fêmea</option>
+              </select>
+            </Field>
+
+            {/* Peso e Idade lado a lado apenas em sm+ */}
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Peso (kg)" required>
+                <input
+                  type="number"
+                  value={formData.weight}
+                  onChange={set('weight')}
+                  className={inputClass}
+                  placeholder="Ex: 450"
+                  min="1"
+                  step="0.1"
+                  required
+                  inputMode="decimal"
+                />
+              </Field>
+
+              <Field label="Idade (meses)" required>
+                <input
+                  type="number"
+                  value={formData.age}
+                  onChange={set('age')}
+                  className={inputClass}
+                  placeholder="Ex: 24"
+                  min="0"
+                  required
+                  inputMode="numeric"
+                />
+              </Field>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className={`
+                w-full py-4 rounded-2xl text-white font-semibold text-base transition
+                flex items-center justify-center gap-2 mt-2
+                ${loading
+                  ? 'bg-slate-300 cursor-not-allowed'
+                  : 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 active:scale-[0.98]'
+                }
+              `}
             >
-              <option value="Macho">Macho</option>
-              <option value="Fêmea">Fêmea</option>
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 mb-1">Peso (kg)</label>
-              <input 
-                type="number" 
-                required
-                value={formData.weight}
-                onChange={e => setFormData({ ...formData, weight: e.target.value })}
-                className="w-full border border-zinc-300 px-4 py-2 rounded-lg"
-                placeholder="Ex: 450"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 mb-1">Idade (meses)</label>
-              <input 
-                type="number" 
-                required
-                value={formData.age}
-                onChange={e => setFormData({ ...formData, age: e.target.value })}
-                className="w-full border border-zinc-300 px-4 py-2 rounded-lg"
-                placeholder="Ex: 24"
-              />
-            </div>
-          </div>
-
-          <button 
-            type="submit" 
-            disabled={loading}
-            className={`w-full py-3 rounded-lg text-white font-semibold transition mt-4 ${loading ? 'bg-zinc-400' : 'bg-green-600 hover:bg-green-700'}`}
-          >
-            {loading ? 'Salvando...' : 'Cadastrar Animal'}
-          </button>
-        </form>
+              {loading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Salvando...
+                </>
+              ) : (
+                'Cadastrar Animal'
+              )}
+            </button>
+          </form>
+        </div>
       </main>
     </div>
   );

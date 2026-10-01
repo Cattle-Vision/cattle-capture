@@ -9,7 +9,7 @@ export async function GET() {
 
   const animals = await prisma.animal.findMany({
     include: { 
-      photos: { select: { id: true } },
+      photos: { select: { id: true, filePath: true }, orderBy: { createdAt: 'desc' } },
       owner: { select: { name: true, email: true } }
     },
     orderBy: { id: 'desc' },

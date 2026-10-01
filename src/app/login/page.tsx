@@ -1,7 +1,10 @@
 'use client';
+
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { Loader2, Mail, Lock } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -31,49 +34,81 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center bg-zinc-100 p-4">
-      <div className="w-full max-w-sm bg-white p-8 rounded-2xl shadow-xl border border-zinc-100">
-        <h1 className="text-2xl font-bold text-center text-zinc-900 mb-2">Cattle Capture</h1>
-        <p className="text-center text-zinc-500 mb-8 text-sm">Entre na sua conta para continuar</p>
+    <div className="min-h-[100dvh] flex items-center justify-center bg-slate-50 p-4">
+      <div className="w-full max-w-sm">
+        {/* Logo / Brand */}
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <span className="text-white text-2xl">🐄</span>
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900">CattleCapture</h1>
+          <p className="text-slate-500 text-sm mt-1">Entre na sua conta para continuar</p>
+        </div>
 
-        {error && (
-          <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-6 border border-red-100 text-center">
-            {error}
-          </div>
-        )}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+          {error && (
+            <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm mb-5 border border-red-100 text-center font-medium">
+              {error}
+            </div>
+          )}
 
-        <form onSubmit={handleLogin} className="flex flex-col gap-5">
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">E-mail</label>
-            <input 
-              type="email" 
-              required 
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              className="w-full border border-zinc-300 px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition"
-              placeholder="seu@email.com"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">Senha</label>
-            <input 
-              type="password" 
-              required 
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              className="w-full border border-zinc-300 px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition"
-              placeholder="••••••••"
-            />
-          </div>
-          
-          <button 
-            type="submit" 
-            disabled={loading}
-            className={`w-full py-3 rounded-lg text-white font-semibold shadow-md transition mt-2 ${loading ? 'bg-zinc-400' : 'bg-green-600 hover:bg-green-700'}`}
-          >
-            {loading ? 'Entrando...' : 'Entrar'}
-          </button>
-        </form>
+          <form onSubmit={handleLogin} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-700">E-mail</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  className="w-full border border-slate-200 bg-slate-50 focus:bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 pl-10 pr-4 py-3 rounded-xl outline-none transition text-slate-900 placeholder:text-slate-400"
+                  placeholder="seu@email.com"
+                  autoComplete="email"
+                  inputMode="email"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-slate-700">Senha</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className="w-full border border-slate-200 bg-slate-50 focus:bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 pl-10 pr-4 py-3 rounded-xl outline-none transition text-slate-900 placeholder:text-slate-400"
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className={`
+                w-full py-3.5 rounded-2xl text-white font-semibold transition mt-2
+                flex items-center justify-center gap-2
+                ${loading
+                  ? 'bg-slate-300 cursor-not-allowed'
+                  : 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 active:scale-[0.98] shadow-md'
+                }
+              `}
+            >
+              {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> Entrando...</> : 'Entrar'}
+            </button>
+          </form>
+        </div>
+
+        <p className="text-center text-sm text-slate-500 mt-5">
+          Não tem uma conta?{' '}
+          <Link href="/register" className="text-emerald-600 font-semibold hover:underline">
+            Cadastre-se
+          </Link>
+        </p>
       </div>
     </div>
   );

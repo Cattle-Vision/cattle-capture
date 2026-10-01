@@ -19,8 +19,9 @@ export async function GET() {
 
     const zip = new AdmZip();
     zip.addLocalFolder(uploadDir);
-    
-    const zipBuffer = zip.toBuffer();
+
+    // Converter para Uint8Array — BodyInit não aceita Buffer diretamente no TS strict
+    const zipBuffer = new Uint8Array(zip.toBuffer());
 
     return new NextResponse(zipBuffer, {
       status: 200,
