@@ -1,249 +1,300 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Camera, RefreshCcw, RotateCcw, Check, X, ArrowLeft, ImagePlus, AlertCircle, AlertTriangle } from "lucide-react";
-import { enqueueSync } from "@/lib/sync";
+import {
+  Camera, RefreshCcw, RotateCcw, Check, X,
+  ArrowLeft, ImagePlus, AlertCircle, AlertTriangle,
+} from "lucide-react";
 
-type CaptureState = "viewfinder" | "preview" | "uploading" | "done" | "error";
+/* ────────────────────────────────────────────────────────────
+   Tipos
+──────────────────────────────────────────────────────────── */
+type Screen = "viewfinder" | "preview" | "uploading" | "done" | "error";
 
 const CHECKLIST = [
   "Animal parado, visto de trás",
   "Garupa, pinças e cauda visíveis",
-  "Sem pessoas, cerca ou sombra cobrindo o lombo",
+  "Sem sombra ou cerca cobrindo o lombo",
 ];
 
-async function blobFromVideo(video: HTMLVideoElement, canvas: HTMLCanvasElement): Promise<Blob | null> {
+/* ────────────────────────────────────────────────────────────
+   Captura do frame do vídeo → Blob JPEG
+──────────────────────────────────────────────────────────── */
+async function captureFrame(
+  video: HTMLVideoElement,
+  canvas: HTMLCanvasElement
+): Promise<Blob | null> {
   try {
-    if (video.videoWidth === 0 || video.videoHeight === 0) return null;
-    const maxDim = 1920;
-    let width = video.videoWidth;
-    let height = video.videoHeight;
-    if (width > maxDim || height > maxDim) {
-      if (width > height) { height = Math.round((height * maxDim) / width); width = maxDim; }
-      else { width = Math.round((width * maxDim) / height); height = maxDim; }
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return null;
+
+    const MAX = 1920;
+    let w = vw, h = vh;
+    if (w > MAX || h > MAX) {
+      if (w > h) { h = Math.round((h * MAX) / w); w = MAX; }
+      else       { w = Math.round((w * MAX) / h); h = MAX; }
     }
-    canvas.width = width;
-    canvas.height = height;
+
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return null;
-    ctx.drawImage(video, 0, 0, width, height);
-    return await new Promise((resolve) => {
-      try { canvas.toBlob((b) => resolve(b), "image/jpeg", 0.92); }
-      catch { resolve(null); }
-    });
-  } catch (err) {
-    console.error("Camera capture error:", err);
+    ctx.drawImage(video, 0, 0, w, h);
+
+    return new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/jpeg", 0.92)
+    );
+  } catch {
     return null;
   }
 }
 
+/* ────────────────────────────────────────────────────────────
+   Componente principal
+──────────────────────────────────────────────────────────── */
 function CameraContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const animalId = searchParams.get("animalId");
-  const paramName = searchParams.get("animalName");
+  const animalId   = searchParams.get("animalId") ?? "";
+  const paramName  = searchParams.get("animalName") ?? "";
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  /* refs — não causam re-render desnecessário */
+  const videoRef    = useRef<HTMLVideoElement>(null);
+  const canvasRef   = useRef<HTMLCanvasElement>(null);
+  const streamRef   = useRef<MediaStream | null>(null);
+  const fileRef     = useRef<HTMLInputElement>(null);
+  const blobRef     = useRef<Blob | null>(null);   // blob capturado (não estado)
+  const previewRef  = useRef<string>("");           // object URL de preview (não estado)
 
-  const [state, setState] = useState<CaptureState>("viewfinder");
-  const [animalName, setAnimalName] = useState(paramName || "");
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
-  const [streamActive, setStreamActive] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [videoReady, setVideoReady] = useState(false);
-  const [checks, setChecks] = useState([false, false, false]);
-  const [lowQuality, setLowQuality] = useState(false); // aviso de qualidade baixa
+  /* estado da tela */
+  const [screen,     setScreen]     = useState<Screen>("viewfinder");
+  const [animalName, setAnimalName] = useState(paramName);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [checks,     setChecks]     = useState([false, false, false]);
+  const [camErr,     setCamErr]     = useState("");
+  const [vidReady,   setVidReady]   = useState(false);
+  const [lowQuality, setLowQuality] = useState(false);
+  const [uploadErr,  setUploadErr]  = useState("");
 
+  /* busca nome do animal se não veio na URL */
   useEffect(() => {
     if (!animalId || animalName) return;
     fetch(`/api/animals/${animalId}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => { if (data?.name || data?.tag) setAnimalName(data.name || data.tag); })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.name || d?.tag) setAnimalName(d.name || d.tag); })
       .catch(() => {});
   }, [animalId, animalName]);
 
-  const clearPreviewUrl = useCallback(() => {
-    if (previewUrl?.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(null);
-  }, [previewUrl]);
-
-  const stopStream = useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    setStreamActive(false);
-    setVideoReady(false);
-  }, []);
-
+  /* inicia câmera */
   useEffect(() => {
-    if (!animalId) { setCameraError("Animal não especificado. Volte e identifique pelo brinco."); return; }
+    if (!animalId) {
+      setCamErr("Animal não especificado. Volte e identifique pelo brinco.");
+      return;
+    }
 
     let cancelled = false;
 
-    async function startCamera() {
+    (async () => {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setCameraError("Use o botão abaixo para abrir a câmera do aparelho.");
+        setCamErr("Use o botão 📷 para abrir a câmera do aparelho.");
         return;
       }
 
       const attempts: MediaStreamConstraints[] = [
-        { audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
-        { audio: false, video: { facingMode: "environment" } },
-        { audio: false, video: true },
+        { video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
+        { video: { facingMode: "environment" }, audio: false },
+        { video: true, audio: false },
       ];
 
-      let lastError: unknown = null;
-      for (const constraints of attempts) {
+      let lastErr: unknown;
+      for (const c of attempts) {
         try {
-          const stream = await navigator.mediaDevices.getUserMedia(constraints);
-          if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-          streamRef.current = stream;
-          const video = videoRef.current;
-          if (!video) return;
-          video.srcObject = stream;
-          video.muted = true;
-          video.playsInline = true;
-          video.setAttribute("playsinline", "true");
-          await video.play().catch(() => {});
-          setStreamActive(true);
-          setCameraError(null);
+          const s = await navigator.mediaDevices.getUserMedia(c);
+          if (cancelled) { s.getTracks().forEach(t => t.stop()); return; }
+          streamRef.current = s;
+          const v = videoRef.current;
+          if (!v) return;
+          v.srcObject = s;
+          v.muted = true;
+          v.playsInline = true;
+          await v.play().catch(() => {});
+          setCamErr("");
           return;
-        } catch (err) { lastError = err; }
+        } catch (e) { lastErr = e; }
       }
-      console.warn("[Camera] getUserMedia falhou:", lastError);
-      setCameraError("Não foi possível usar a câmera no navegador. Abra a câmera nativa abaixo.");
+      if (!cancelled) {
+        console.warn("Camera failed:", lastErr);
+        setCamErr("Câmera não disponível no navegador. Use o botão 📷 abaixo.");
+      }
+    })();
+
+    const timer = setTimeout(() => {
+      if (!cancelled && !videoRef.current?.videoWidth) {
+        setCamErr(e => e || "Câmera demorou a carregar. Use o botão 📷.");
+      }
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    };
+  }, [animalId]);
+
+  /* limpa object URL ao desmontar */
+  useEffect(() => {
+    return () => {
+      if (previewRef.current.startsWith("blob:")) URL.revokeObjectURL(previewRef.current);
+    };
+  }, []);
+
+  /* ── Captura do vídeo ── */
+  const handleCapture = async () => {
+    const video  = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || !vidReady) {
+      setCamErr("Câmera não está pronta. Aguarde.");
+      return;
     }
 
-    startCamera();
-    const timeout = window.setTimeout(() => {
-      if (!cancelled && !videoRef.current?.videoWidth) {
-        setCameraError((prev) => prev ?? "A prévia travou. Use a câmera do aparelho.");
-      }
-    }, 4000);
+    const blob = await captureFrame(video, canvas);
+    if (!blob) {
+      setCamErr("Falha ao capturar imagem. Tente o botão 📷.");
+      return;
+    }
 
-    return () => { cancelled = true; window.clearTimeout(timeout); stopStream(); };
-  }, [animalId, stopStream]);
+    /* revogar URL anterior */
+    if (previewRef.current.startsWith("blob:")) URL.revokeObjectURL(previewRef.current);
 
-  const captureFromVideo = async () => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
-    if (video.readyState < 2) { setCameraError("A câmera ainda não está pronta."); return; }
-    const blob = await blobFromVideo(video, canvas);
-    if (!blob) { setCameraError("Falha ao processar a imagem. Use a câmera do aparelho."); return; }
-    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(40);
-    clearPreviewUrl();
-    setCapturedBlob(blob);
-    setPreviewUrl(URL.createObjectURL(blob));
+    blobRef.current = blob;
+    const url = URL.createObjectURL(blob);
+    previewRef.current = url;
+
+    navigator.vibrate?.(40);
+    setPreviewUrl(url);
     setChecks([false, false, false]);
-    setState("preview");
+    setScreen("preview");
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  /* ── Arquivo do sistema (câmera nativa) ── */
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    clearPreviewUrl();
-    setCapturedBlob(file);
-    setPreviewUrl(URL.createObjectURL(file));
+
+    if (previewRef.current.startsWith("blob:")) URL.revokeObjectURL(previewRef.current);
+
+    blobRef.current = file;
+    const url = URL.createObjectURL(file);
+    previewRef.current = url;
+
+    setPreviewUrl(url);
     setChecks([false, false, false]);
-    setState("preview");
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    setScreen("preview");
+    if (fileRef.current) fileRef.current.value = "";
   };
 
-  const confirmUpload = async () => {
-    if (!capturedBlob || !animalId) return;
-    if (!checks.every(Boolean)) return;
-    setState("uploading");
+  /* ── Upload ── */
+  const handleSave = async () => {
+    const blob = blobRef.current;
+    if (!blob || !animalId || !checks.every(Boolean)) return;
+
+    setScreen("uploading");
+    setUploadErr("");
 
     const fileName = `rear_${animalId}_${Date.now()}.jpg`;
-    const form = new FormData();
-    form.append("file", capturedBlob, fileName);
-    form.append("animalId", animalId);
-    form.append("view", "REAR");
+    const fd = new FormData();
+    fd.append("file", blob, fileName);
+    fd.append("animalId", animalId);
+    fd.append("view", "REAR");
 
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+
       if (res.ok) {
-        const data = await res.json();
         setLowQuality(data.lowQuality === true);
-        setState("done");
+        setScreen("done");
         return;
       }
-      // Erro real do servidor
-      const errData = await res.json().catch(() => ({}));
-      console.error("Upload server error:", errData);
-      throw new Error("upload");
-    } catch {
-      try {
-        const buffer = await capturedBlob.arrayBuffer();
-        await enqueueSync("/api/upload", "POST", { file: buffer, fileName, animalId }, true);
-        setState("done");
-      } catch {
-        setState("error");
-      }
+
+      /* falha com mensagem do servidor */
+      console.error("Upload error:", data);
+      setUploadErr(data.error || "Falha no upload. Tente novamente.");
+      setScreen("error");
+    } catch (err) {
+      console.error("Network error:", err);
+      setUploadErr("Sem conexão. Verifique a internet e tente novamente.");
+      setScreen("error");
     }
   };
 
+  /* ── Refazer ── */
   const retake = () => {
-    clearPreviewUrl();
-    setCapturedBlob(null);
+    blobRef.current = null;
+    if (previewRef.current.startsWith("blob:")) URL.revokeObjectURL(previewRef.current);
+    previewRef.current = "";
+    setPreviewUrl("");
     setLowQuality(false);
-    setState("viewfinder");
+    setUploadErr("");
+    setScreen("viewfinder");
   };
 
-  useEffect(() => () => clearPreviewUrl(), [clearPreviewUrl]);
-
-  if (!animalId) {
+  /* ──────────────────────────────────────────────────────────
+     Telas de resultado
+  ────────────────────────────────────────────────────────── */
+  if (screen === "done") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-zinc-950 text-white gap-4 px-6">
-        <p className="text-sm text-zinc-300 text-center">Identifique o animal pelo brinco antes de fotografar.</p>
-        <button onClick={() => router.push("/identify")} className="px-5 py-3 rounded-xl font-semibold" style={{ background: "var(--color-brand)" }}>
-          Ir para identificador
-        </button>
-      </div>
-    );
-  }
-
-  if (state === "done") {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-zinc-950 text-white gap-6 px-6">
-        <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{ background: lowQuality ? "#D97706" : "#16a34a" }}>
-          <Check className="w-10 h-10 text-white stroke-[2.5]" />
+      <div
+        className="flex flex-col items-center justify-center min-h-[100dvh] px-6 gap-6"
+        style={{ background: "#111" }}
+      >
+        <div
+          className="w-20 h-20 rounded-full flex items-center justify-center"
+          style={{ background: lowQuality ? "#D97706" : "#DB2777" }}
+        >
+          <Check className="w-10 h-10 text-white stroke-[3]" />
         </div>
+
         <div className="text-center max-w-xs">
-          <h2 className="text-2xl font-bold mb-1.5">Traseira salva</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">Traseira salva!</h2>
           <p className="text-zinc-400 text-sm">
-            Imagem de <strong className="text-white">{animalName || "animal"}</strong> adicionada ao dataset de ICC.
+            Imagem de{" "}
+            <strong className="text-white">{animalName || "animal"}</strong>{" "}
+            adicionada ao dataset de ICC.
           </p>
 
-          {/* Aviso de qualidade — aparece quando o modelo detectou baixa confiança */}
           {lowQuality && (
-            <div className="mt-4 flex items-start gap-2.5 text-left rounded-xl p-3.5" style={{ background: "#431407", border: "1px solid #92400E" }}>
+            <div
+              className="mt-4 text-left rounded-xl p-3.5 flex gap-3"
+              style={{ background: "#451a03", border: "1px solid #92400E" }}
+            >
               <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
               <div>
-                <p className="text-amber-300 font-semibold text-sm">Qualidade baixa detectada</p>
-                <p className="text-amber-400/80 text-xs mt-0.5 leading-relaxed">
-                  A foto foi salva, mas o modelo identificou baixa confiança de traseira bovina.
-                  Considere tirar outra com melhor enquadramento.
+                <p className="text-amber-300 font-bold text-sm">Qualidade baixa</p>
+                <p className="text-amber-400/75 text-xs mt-1 leading-relaxed">
+                  A foto foi salva, mas a IA detectou baixa confiança de traseira bovina.
+                  Considere refazer com melhor enquadramento.
                 </p>
               </div>
             </div>
           )}
         </div>
 
-        <div className="flex flex-col gap-3 w-full max-w-xs pt-2">
+        <div className="flex flex-col gap-3 w-full max-w-xs">
           <button
             onClick={() => router.push(`/animal/${animalId}`)}
-            className="w-full py-4 rounded-xl font-semibold"
-            style={{ background: "var(--color-brand)" }}
+            className="w-full py-4 rounded-xl font-bold text-white"
+            style={{ background: "#DB2777" }}
           >
-            Ver galeria
+            Ver galeria do animal
           </button>
-          <button onClick={retake} className="w-full py-3.5 bg-zinc-800 rounded-xl text-sm font-medium">
+          <button
+            onClick={retake}
+            className="w-full py-3.5 bg-zinc-800 rounded-xl text-sm font-semibold text-white"
+          >
             Tirar outra foto
           </button>
         </div>
@@ -251,63 +302,222 @@ function CameraContent() {
     );
   }
 
-  if (state === "error") {
+  if (screen === "error") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-zinc-950 text-white gap-6 px-6">
-        <div className="w-20 h-20 bg-red-500/20 text-red-400 border border-red-500/30 rounded-full flex items-center justify-center">
-          <X className="w-10 h-10 stroke-[2.5]" />
+      <div
+        className="flex flex-col items-center justify-center min-h-[100dvh] px-6 gap-6"
+        style={{ background: "#111" }}
+      >
+        <div className="w-20 h-20 bg-red-500/20 border border-red-500/40 rounded-full flex items-center justify-center">
+          <X className="w-10 h-10 text-red-400 stroke-[2.5]" />
         </div>
-        <p className="text-zinc-400 text-sm text-center">Não foi possível enviar a imagem.</p>
-        <button onClick={retake} className="w-full max-w-xs py-4 bg-zinc-800 rounded-xl">Tentar novamente</button>
+        <div className="text-center max-w-xs">
+          <h2 className="text-xl font-bold text-white mb-2">Falha no envio</h2>
+          <p className="text-zinc-400 text-sm">{uploadErr || "Não foi possível enviar a imagem."}</p>
+        </div>
+        <button onClick={retake} className="w-full max-w-xs py-4 bg-zinc-800 rounded-xl text-white font-semibold">
+          Tentar novamente
+        </button>
       </div>
     );
   }
 
+  /* ──────────────────────────────────────────────────────────
+     Viewfinder + Preview + Uploading (mesma tela, full-screen)
+  ────────────────────────────────────────────────────────── */
   return (
-    <div className="relative w-full h-[100dvh] bg-black overflow-hidden select-none flex flex-col justify-between">
-      <canvas ref={canvasRef} className="opacity-0 absolute -z-10 pointer-events-none" />
-      <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileChange} />
+    <div className="relative w-full h-[100dvh] bg-black overflow-hidden select-none">
+      {/* canvas oculto para captura */}
+      <canvas ref={canvasRef} className="hidden" />
 
-      {/* Preview */}
-      {state === "preview" && previewUrl && (
-        <div className="absolute inset-0 flex flex-col z-30 bg-black">
-          <div
-            className="p-4 flex items-center justify-between z-10"
-            style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", background: "linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)" }}
+      {/* input de arquivo oculto */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFile}
+      />
+
+      {/* ── VÍDEO (fundo) ── */}
+      <video
+        ref={videoRef}
+        autoPlay
+        muted
+        playsInline
+        onLoadedMetadata={() => setVidReady(true)}
+        onPlaying={() => setVidReady(true)}
+        className="absolute inset-0 w-full h-full object-cover"
+        style={{ display: screen === "viewfinder" ? "block" : "none" }}
+      />
+
+      {/* ── TOPO (header) ── */}
+      <div
+        className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3"
+        style={{
+          paddingTop: "max(0.75rem, env(safe-area-inset-top))",
+          background: "linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 100%)",
+          display: (screen === "uploading") ? "none" : "flex",
+        }}
+      >
+        <button
+          onClick={() => router.back()}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 text-white text-xs font-semibold"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Voltar
+        </button>
+        <div className="text-center">
+          <p className="text-white font-bold text-sm truncate max-w-[180px]">{animalName || "Câmera"}</p>
+          <p
+            className="text-[10px] font-semibold uppercase tracking-wider"
+            style={{ color: "#F472B6" }}
           >
-            <span className="text-white font-semibold text-sm">Confirme a traseira</span>
-            <span className="text-zinc-400 text-xs">{animalName || "Animal"}</span>
+            Traseira · ICC
+          </p>
+        </div>
+        <button
+          onClick={() => fileRef.current?.click()}
+          className="p-2 rounded-xl bg-white/10 text-white"
+          aria-label="Câmera nativa"
+        >
+          <ImagePlus className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* ── VIEWFINDER ── */}
+      {screen === "viewfinder" && (
+        <>
+          {/* guia de enquadramento */}
+          {!camErr && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+              <div className="relative w-[70%] max-w-[280px] aspect-[3/4] rounded-2xl border-2 border-white/30">
+                <div className="absolute -top-1 -left-1 w-5 h-5 border-t-[3px] border-l-[3px] border-pink-400 rounded-tl-lg" />
+                <div className="absolute -top-1 -right-1 w-5 h-5 border-t-[3px] border-r-[3px] border-pink-400 rounded-tr-lg" />
+                <div className="absolute -bottom-1 -left-1 w-5 h-5 border-b-[3px] border-l-[3px] border-pink-400 rounded-bl-lg" />
+                <div className="absolute -bottom-1 -right-1 w-5 h-5 border-b-[3px] border-r-[3px] border-pink-400 rounded-br-lg" />
+                <div className="absolute -bottom-9 left-1/2 -translate-x-1/2 bg-black/60 text-white/80 text-xs px-3 py-1 rounded-full whitespace-nowrap">
+                  Enquadre garupa e pinças
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* loading da câmera */}
+          {!vidReady && !camErr && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3 text-white/60 text-sm">
+                <RefreshCcw className="w-6 h-6 animate-spin" />
+                <span>Abrindo câmera…</span>
+              </div>
+            </div>
+          )}
+
+          {/* erro de câmera */}
+          {camErr && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 p-6 text-center" style={{ background: "rgba(0,0,0,0.9)" }}>
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: "rgba(236,72,153,0.2)", border: "1px solid rgba(236,72,153,0.4)" }}>
+                <AlertCircle className="w-8 h-8" style={{ color: "#F472B6" }} />
+              </div>
+              <p className="text-zinc-300 text-sm max-w-xs">{camErr}</p>
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="flex items-center gap-2 px-6 py-4 rounded-2xl font-semibold text-white"
+                style={{ background: "#DB2777" }}
+              >
+                <Camera className="w-5 h-5" />
+                Abrir câmera do aparelho
+              </button>
+            </div>
+          )}
+
+          {/* botão de disparo */}
+          <div
+            className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-around py-8"
+            style={{
+              paddingBottom: "max(2rem, env(safe-area-inset-bottom))",
+              background: "linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%)",
+            }}
+          >
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="w-12 h-12 rounded-full bg-white/10 text-white flex items-center justify-center"
+              aria-label="Câmera nativa"
+            >
+              <ImagePlus className="w-5 h-5" />
+            </button>
+
+            <button
+              onClick={handleCapture}
+              disabled={!vidReady || !!camErr}
+              aria-label="Capturar foto"
+              className="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center active:scale-90 disabled:opacity-40 transition-transform"
+              style={{ background: "rgba(255,255,255,0.2)" }}
+            >
+              <div
+                className="w-16 h-16 rounded-full flex items-center justify-center"
+                style={{ background: "#fff" }}
+              >
+                <Camera className="w-7 h-7 text-zinc-900" />
+              </div>
+            </button>
+
+            <div className="w-12 h-12" aria-hidden />
           </div>
-          <div className="flex-1 relative flex items-center justify-center p-2 overflow-hidden">
-            <img src={previewUrl} alt="Pré-visualização" className="max-w-full max-h-full object-contain rounded-xl" />
+        </>
+      )}
+
+      {/* ── PREVIEW ── */}
+      {screen === "preview" && previewUrl && (
+        <div className="absolute inset-0 z-30 flex flex-col bg-black">
+          {/* imagem */}
+          <div className="flex-1 flex items-center justify-center p-3 overflow-hidden">
+            <img
+              src={previewUrl}
+              alt="Preview"
+              className="max-w-full max-h-full object-contain rounded-xl"
+            />
           </div>
-          <div className="px-5 pb-3 space-y-2">
+
+          {/* checklist */}
+          <div className="px-4 pb-3 space-y-2">
             {CHECKLIST.map((item, i) => (
-              <label key={item} className="flex items-center gap-3 text-sm text-white bg-white/10 rounded-xl px-3 py-2.5">
+              <label
+                key={item}
+                className="flex items-center gap-3 text-sm text-white bg-white/10 rounded-xl px-3 py-2.5 cursor-pointer"
+              >
                 <input
                   type="checkbox"
                   checked={checks[i]}
-                  onChange={(e) => setChecks((prev) => prev.map((v, idx) => (idx === i ? e.target.checked : v)))}
-                  className="w-4 h-4"
-                  style={{ accentColor: "var(--color-brand-light)" }}
+                  onChange={(e) =>
+                    setChecks((p) => p.map((v, idx) => (idx === i ? e.target.checked : v)))
+                  }
+                  className="w-4 h-4 rounded"
+                  style={{ accentColor: "#DB2777" }}
                 />
                 {item}
               </label>
             ))}
           </div>
+
+          {/* ações */}
           <div
-            className="flex gap-3 p-5 border-t border-zinc-800 bg-zinc-950/90"
-            style={{ paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }}
+            className="flex gap-3 px-4 py-4 bg-zinc-950/90 border-t border-zinc-800"
+            style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
           >
-            <button onClick={retake} className="flex-1 flex items-center justify-center gap-2 py-4 bg-zinc-800 rounded-2xl text-white font-medium">
+            <button
+              onClick={retake}
+              className="flex-1 flex items-center justify-center gap-2 py-4 bg-zinc-800 rounded-2xl text-white font-semibold"
+            >
               <RotateCcw className="w-5 h-5" />
               Outra
             </button>
             <button
-              onClick={confirmUpload}
+              onClick={handleSave}
               disabled={!checks.every(Boolean)}
-              className="flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl text-white font-semibold disabled:bg-zinc-700"
-              style={checks.every(Boolean) ? { background: "var(--color-brand)" } : {}}
+              className="flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl text-white font-bold disabled:opacity-40 disabled:bg-zinc-700"
+              style={checks.every(Boolean) ? { background: "#DB2777" } : {}}
             >
               <Check className="w-5 h-5" />
               Salvar
@@ -316,107 +526,14 @@ function CameraContent() {
         </div>
       )}
 
-      {/* Uploading */}
-      {state === "uploading" && (
-        <div className="absolute inset-0 flex z-30 bg-black/90 items-center justify-center p-6">
+      {/* ── UPLOADING ── */}
+      {screen === "uploading" && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.92)" }}>
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 flex flex-col items-center gap-4 max-w-xs text-center">
-            <RefreshCcw className="w-10 h-10 animate-spin" style={{ color: "var(--color-brand-light)" }} />
+            <RefreshCcw className="w-10 h-10 animate-spin" style={{ color: "#DB2777" }} />
             <p className="text-white font-semibold">Salvando no dataset…</p>
+            <p className="text-zinc-500 text-xs">Não feche a tela</p>
           </div>
-        </div>
-      )}
-
-      {/* Top bar */}
-      <div
-        className="w-full px-4 py-3.5 flex items-center justify-between z-20"
-        style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))", background: "linear-gradient(to bottom, rgba(0,0,0,0.85), transparent)" }}
-      >
-        <button onClick={() => router.back()} className="text-white text-xs font-semibold flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10">
-          <ArrowLeft className="w-4 h-4" />
-          Voltar
-        </button>
-        <div className="text-center min-w-0 px-2">
-          <h1 className="text-white font-bold text-sm truncate max-w-[200px]">{animalName || "Câmera"}</h1>
-          <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-brand-light)" }}>Traseira · ICC</p>
-        </div>
-        <button onClick={() => fileInputRef.current?.click()} className="text-white p-2 rounded-xl bg-white/10" aria-label="Câmera nativa">
-          <ImagePlus className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Vídeo */}
-      <div className="absolute inset-0 z-0 bg-black flex items-center justify-center">
-        <video
-          ref={videoRef}
-          autoPlay muted playsInline
-          onLoadedMetadata={() => setVideoReady(true)}
-          onPlaying={() => setVideoReady(true)}
-          className="w-full h-full object-cover"
-        />
-        {!videoReady && !cameraError && (
-          <div className="absolute inset-0 flex items-center justify-center text-white/60 text-sm">Abrindo câmera…</div>
-        )}
-      </div>
-
-      {/* Guia de enquadramento */}
-      {streamActive && state === "viewfinder" && !cameraError && (
-        <div className="absolute inset-0 pointer-events-none z-10 flex flex-col items-center justify-center">
-          <div className="relative w-[72%] max-w-xs aspect-[3/4] rounded-2xl border-2 border-white/40">
-            <div className="absolute -top-1 -left-1 w-5 h-5 border-t-[3px] border-l-[3px] border-amber-400 rounded-tl-lg" />
-            <div className="absolute -top-1 -right-1 w-5 h-5 border-t-[3px] border-r-[3px] border-amber-400 rounded-tr-lg" />
-            <div className="absolute -bottom-1 -left-1 w-5 h-5 border-b-[3px] border-l-[3px] border-amber-400 rounded-bl-lg" />
-            <div className="absolute -bottom-1 -right-1 w-5 h-5 border-b-[3px] border-r-[3px] border-amber-400 rounded-br-lg" />
-            <svg viewBox="0 0 120 160" className="absolute inset-4 opacity-50">
-              <ellipse cx="60" cy="42" rx="28" ry="18" fill="none" stroke="white" strokeWidth="1.5" />
-              <path d="M40 58 L36 118 L84 118 L80 58" fill="none" stroke="white" strokeWidth="1.5" />
-              <path d="M60 42 L60 22" stroke="white" strokeWidth="1.5" />
-              <text x="60" y="148" textAnchor="middle" fill="white" fontSize="9">traseira</text>
-            </svg>
-            <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-black/60 text-white/80 text-xs px-3 py-1 rounded-full whitespace-nowrap">
-              Enquadre garupa e pinças
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Erro de câmera */}
-      {cameraError && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 bg-zinc-950/90 text-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center">
-            <AlertCircle className="w-8 h-8" />
-          </div>
-          <p className="text-zinc-300 text-sm max-w-xs">{cameraError}</p>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center justify-center gap-2.5 px-6 py-4 text-white rounded-2xl font-semibold"
-            style={{ background: "var(--color-brand)" }}
-          >
-            <Camera className="w-5 h-5" />
-            Abrir câmera do aparelho
-          </button>
-        </div>
-      )}
-
-      {/* Botão de captura */}
-      {streamActive && state === "viewfinder" && !cameraError && (
-        <div
-          className="w-full z-20 flex items-center justify-around pb-8 pt-4"
-          style={{ paddingBottom: "max(2rem, env(safe-area-inset-bottom))", background: "linear-gradient(to top, rgba(0,0,0,0.85), transparent)" }}
-        >
-          <button onClick={() => fileInputRef.current?.click()} className="w-12 h-12 rounded-full bg-white/10 text-white flex items-center justify-center" aria-label="Câmera nativa">
-            <ImagePlus className="w-5 h-5" />
-          </button>
-          <button
-            onClick={captureFromVideo}
-            disabled={!videoReady}
-            aria-label="Disparar captura"
-            className="relative w-20 h-20 rounded-full border-[4px] border-white bg-white/20 flex items-center justify-center active:scale-90 disabled:opacity-50 disabled:active:scale-100"
-          >
-            <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center">
-              <Camera className="w-7 h-7 text-zinc-900" />
-            </div>
-          </button>
-          <div className="w-12 h-12" />
         </div>
       )}
     </div>
@@ -427,8 +544,11 @@ export default function CameraPage() {
   return (
     <Suspense
       fallback={
-        <div className="h-[100dvh] bg-zinc-950 flex flex-col items-center justify-center text-white/60 text-sm gap-3">
-          <RefreshCcw className="w-6 h-6 animate-spin text-amber-500" />
+        <div
+          className="h-[100dvh] flex flex-col items-center justify-center gap-3"
+          style={{ background: "#111", color: "rgba(255,255,255,0.5)", fontSize: 14 }}
+        >
+          <RefreshCcw className="w-6 h-6 animate-spin" style={{ color: "#DB2777" }} />
           <span>Iniciando câmera…</span>
         </div>
       }
