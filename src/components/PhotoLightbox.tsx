@@ -47,6 +47,14 @@ export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLi
   };
 
   // Navegação por teclado
+  const prev = useCallback(() => {
+    setCurrentIndex(i => (i > 0 ? i - 1 : photos.length - 1));
+  }, [photos.length]);
+
+  const next = useCallback(() => {
+    setCurrentIndex(i => (i < photos.length - 1 ? i + 1 : 0));
+  }, [photos.length]);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -55,15 +63,7 @@ export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLi
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [currentIndex]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const prev = useCallback(() => {
-    setCurrentIndex(i => (i > 0 ? i - 1 : photos.length - 1));
-  }, [photos.length]);
-
-  const next = useCallback(() => {
-    setCurrentIndex(i => (i < photos.length - 1 ? i + 1 : 0));
-  }, [photos.length]);
+  }, [onClose, prev, next]);
 
   // Suporte a swipe no mobile
   const handleTouchStart = (e: React.TouchEvent) => {

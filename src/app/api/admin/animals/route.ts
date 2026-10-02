@@ -1,19 +1,19 @@
-import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { auth } from '@/lib/auth';
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 
 export async function GET() {
   const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
-  if (session.user.role !== 'ADMIN') return NextResponse.json({ error: 'Acesso negado' }, { status: 403 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  if (session.user.role !== "ADMIN") return NextResponse.json({ error: "Acesso negado" }, { status: 403 });
 
   const animals = await prisma.animal.findMany({
-    include: { 
-      photos: { select: { id: true, filePath: true }, orderBy: { createdAt: 'desc' } },
-      owner: { select: { name: true, email: true } }
+    include: {
+      photos: { select: { id: true, filePath: true, view: true }, orderBy: { createdAt: "desc" } },
+      owner: { select: { name: true, email: true } },
     },
-    orderBy: { id: 'desc' },
+    orderBy: { updatedAt: "desc" },
   });
-  
+
   return NextResponse.json(animals);
 }

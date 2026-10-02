@@ -1,34 +1,34 @@
-import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { auth } from '@/lib/auth';
-import { promises as fs } from 'fs';
-import path from 'path';
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
+import { deleteStoredFile } from "@/lib/storage";
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  }
 
   try {
     const { id } = await params;
     const photo = await prisma.photo.findUnique({
       where: { id },
-      include: { animal: true }
+      include: { animal: true },
     });
 
-    if (!photo || photo.animal.ownerId !== Number(session.user.id)) {
-      return NextResponse.json({ error: 'Proibido ou não encontrado' }, { status: 403 });
+    const isOwner = photo && photo.animal.ownerId === Number(session.user.id);
+    const isAdmin = session.user.role === "ADMIN";
+    if (!photo || (!isOwner && !isAdmin)) {
+      return NextResponse.json({ error: "Proibido ou não encontrado" }, { status: 403 });
     }
 
-    // Apagar o arquivo se existir (remove o prefixo /storage/)
-    if (photo.filePath) {
-       const relativePath = photo.filePath.replace(/^\/storage\//, '');
-       const absolutePath = path.join(process.cwd(), 'storage', relativePath);
-       await fs.unlink(absolutePath).catch(() => {});
-    }
-
+    await deleteStoredFile(photo.filePath);
     await prisma.photo.delete({ where: { id: photo.id } });
     return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ error: 'Erro ao deletar' }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Erro ao deletar" }, { status: 500 });
   }
 }

@@ -14,7 +14,12 @@ export async function initDB() {
   });
 }
 
-export async function enqueueSync(url: string, method: string, body: any, isFormData: boolean = false) {
+export async function enqueueSync(
+  url: string,
+  method: string,
+  body: Record<string, unknown> | { file: ArrayBuffer; fileName: string; animalId: string },
+  isFormData: boolean = false
+) {
   const db = await initDB();
   if (!db) return;
   await db.add('syncQueue', { url, method, body, isFormData, createdAt: Date.now() });

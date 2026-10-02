@@ -1,36 +1,31 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CattleCapture
 
-## Getting Started
+App para montar dataset de **fotos da traseira** de bois e vacas, com animal identificado pelo brinco, para treinar IA de **índice de condição corporal (ICC)**.
 
-First, run the development server:
+Banco: **SQLite** via Prisma (não precisa de MySQL nem de Docker no PC).
+
+## No seu PC (sem Docker)
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abra [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+O `npm run dev` cria o `.env` se faltar, gera o cliente Prisma e aplica o schema no SQLite (`prisma/dev.db`).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Cadastro: `/register` (e-mail com `admin` vira administrador)
+- Identificar pelo brinco: `/identify`
+- Câmera no celular na mesma rede: `npm run dev:https` (a câmera do navegador exige HTTPS fora de localhost)
 
-## Learn More
+## No servidor (Docker)
 
-To learn more about Next.js, take a look at the following resources:
+Definir `AUTH_SECRET` e subir com o `docker-compose.yml` do repositório. Volumes: fotos em `storage/uploads` e banco em `prisma/`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Fluxo de campo
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Identificar o brinco (ou cadastrar raça, sexo, peso, idade).
+2. Fotografar **somente a traseira**, com garupa e pinças no quadro.
+3. Confirmar o checklist de qualidade.
+4. Admin exporta ZIP + `manifest.json` para treino.
