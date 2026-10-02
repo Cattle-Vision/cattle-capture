@@ -2,9 +2,6 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import AdmZip from "adm-zip";
-import path from "path";
-import fs from "fs";
-import { UPLOADS_DIR } from "@/lib/storage";
 
 export async function GET() {
   const session = await auth();
@@ -24,11 +21,18 @@ export async function GET() {
 
     for (const animal of animals) {
       for (const photo of animal.photos) {
-        const filename = path.basename(photo.filePath);
-        const abs = path.join(UPLOADS_DIR, filename);
-        if (fs.existsSync(abs)) {
-          zip.addLocalFile(abs, "images");
+        const filename = photo.filePath.split('/').pop() || `photo_${photo.id}.jpg`;
+        
+        try {
+          const res = await fetch(photo.filePath);
+          if (res.ok) {
+            const arrayBuffer = await res.arrayBuffer();
+            zip.addFile(`images/${filename}`, Buffer.from(arrayBuffer));
+          }
+        } catch (err) {
+          console.error("Error fetching photo for export:", err);
         }
+        
         manifest.push({
           file: `images/${filename}`,
           photoId: photo.id,

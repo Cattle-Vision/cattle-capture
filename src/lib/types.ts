@@ -26,6 +26,9 @@ export interface AnimalWithOwner extends Animal {
 }
 
 export function filePathToUrl(filePath: string): string {
+  if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
+    return filePath;
+  }
   const relative = filePath.replace(/^\//, "");
   return `/api/${relative}`;
 }

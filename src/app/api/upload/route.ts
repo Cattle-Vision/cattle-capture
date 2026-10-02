@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import path from "path";
-import { ensureUploadsDir, UPLOADS_DIR } from "@/lib/storage";
 import { detectRearScore } from "@/lib/ai";
+import { put } from "@vercel/blob";
 
 function safeJpegName(tag: string) {
   const slug = tag.replace(/[^A-Z0-9\-_.]/gi, "_");
@@ -51,14 +50,16 @@ export async function POST(request: Request) {
     }
 
     const filename = safeJpegName(animal.tag);
-    await ensureUploadsDir();
-    const { promises: fs } = await import("fs");
-    await fs.writeFile(path.join(UPLOADS_DIR, filename), buffer);
+    
+    const blob = await put(filename, buffer, {
+      access: 'public',
+      contentType: 'image/jpeg',
+    });
 
     const photo = await prisma.photo.create({
       data: {
         animalId,
-        filePath: `/storage/uploads/${filename}`,
+        filePath: blob.url,
         view,
         score: aiScore,
       },

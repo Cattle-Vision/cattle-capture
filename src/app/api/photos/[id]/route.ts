@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { deleteStoredFile } from "@/lib/storage";
+import { del } from "@vercel/blob";
 
 export async function DELETE(
   _request: Request,
@@ -25,7 +25,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Proibido ou não encontrado" }, { status: 403 });
     }
 
-    await deleteStoredFile(photo.filePath);
+    await del(photo.filePath);
     await prisma.photo.delete({ where: { id: photo.id } });
     return NextResponse.json({ success: true });
   } catch {
