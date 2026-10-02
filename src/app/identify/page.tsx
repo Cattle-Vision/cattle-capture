@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, Plus, Loader2 } from "lucide-react";
+import { Search, ArrowLeft, Loader2 } from "lucide-react";
 import { normalizeTag } from "@/lib/animal";
 
 export default function IdentifyPage() {
@@ -16,86 +16,98 @@ export default function IdentifyPage() {
     e.preventDefault();
     const normalized = normalizeTag(tag);
     if (!normalized) {
-      setError("Digite o número do brinco.");
+      setError("Digite o nome ou brinco do animal.");
       return;
     }
     setLoading(true);
     setError("");
 
-    const res = await fetch(`/api/animals?tag=${encodeURIComponent(normalized)}`);
-    if (res.ok) {
-      const animal = await res.json();
-      router.push(`/camera?animalId=${animal.id}&animalName=${encodeURIComponent(animal.name || animal.tag)}`);
-      return;
-    }
-    if (res.status === 404) {
-      const createRes = await fetch("/api/animals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tag: normalized,
-          name: normalized,
-          breed: "Nelore",
-          sex: "Fêmea",
-          weight: 400,
-          age: 24,
-        }),
-      });
-      if (createRes.ok) {
-        const newAnimal = await createRes.json();
-        router.push(`/camera?animalId=${newAnimal.id}&animalName=${encodeURIComponent(newAnimal.name || newAnimal.tag)}`);
+    try {
+      const res = await fetch(`/api/animals?tag=${encodeURIComponent(normalized)}`);
+      if (res.ok) {
+        const animal = await res.json();
+        // Animal encontrado → vai pro perfil dele
+        router.push(`/animal/${animal.id}`);
         return;
       }
-      setError("Falha ao criar registro do animal automaticamente.");
-      setLoading(false);
-      return;
+      if (res.status === 404) {
+        // Não existe → cadastro com tag pré-preenchida
+        router.push(`/animal/new?tag=${encodeURIComponent(normalized)}`);
+        return;
+      }
+      setError("Não foi possível consultar o animal.");
+    } catch {
+      setError("Erro de conexão. Tente novamente.");
     }
-    setError("Não foi possível consultar o identificador.");
+
     setLoading(false);
   };
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 flex flex-col">
-      <header className="bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between">
-        <h1 className="text-base font-bold text-slate-900">Identificar animal</h1>
-        <Link href="/dashboard" className="text-sm text-emerald-700 font-medium">
-          Meus animais
-        </Link>
+    <div className="min-h-[100dvh] flex flex-col" style={{ background: "var(--color-bg)" }}>
+      {/* Header */}
+      <header
+        className="border-b px-4 py-3 flex items-center gap-3"
+        style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
+      >
+        <button
+          onClick={() => router.push("/dashboard")}
+          aria-label="Voltar"
+          className="p-2 rounded-lg"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <h1 className="text-base font-bold" style={{ color: "var(--color-text-primary)" }}>
+          Identificar animal
+        </h1>
       </header>
 
       <main className="flex-1 p-4 flex items-start justify-center">
-        <form onSubmit={handleSubmit} className="w-full max-w-md bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mt-8">
-          <p className="text-sm text-slate-500 mb-5">
-            Digite o nome do animal. Se já existir, a câmera abre na hora. Se não, será criado automaticamente.
+        <div className="w-full max-w-md mt-8">
+          <div className="card p-6">
+            <h2 className="text-xl font-bold mb-1" style={{ color: "var(--color-text-primary)" }}>
+              Buscar por brinco
+            </h2>
+            <p className="text-sm mb-6" style={{ color: "var(--color-text-muted)" }}>
+              Se o animal já estiver cadastrado, você será redirecionado para o perfil.
+              Caso contrário, o cadastro abrirá com o brinco pré-preenchido.
+            </p>
+
+            {error && <div className="error-banner mb-5">{error}</div>}
+
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              <div>
+                <label className="field-label" htmlFor="tag-input">Brinco / nome</label>
+                <input
+                  id="tag-input"
+                  value={tag}
+                  onChange={(e) => setTag(e.target.value.toUpperCase())}
+                  className="field-input"
+                  placeholder="Ex: MIMOSA ou NEL-0142"
+                  autoFocus
+                  autoComplete="off"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="btn-primary w-full py-3.5"
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                {loading ? "Buscando…" : "Buscar"}
+              </button>
+            </form>
+          </div>
+
+          <p className="mt-4 text-center text-sm" style={{ color: "var(--color-text-muted)" }}>
+            Prefere cadastrar direto?{" "}
+            <Link href="/animal/new" className="font-semibold" style={{ color: "var(--color-brand)" }}>
+              Novo animal
+            </Link>
           </p>
-          {error && (
-            <div className="bg-red-50 text-red-600 text-sm px-3 py-2 rounded-xl mb-4">{error}</div>
-          )}
-          <label className="text-sm font-semibold text-slate-700">Nome do animal</label>
-          <input
-            value={tag}
-            onChange={(e) => setTag(e.target.value.toUpperCase())}
-            className="mt-1.5 w-full border border-slate-200 bg-slate-50 focus:bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 px-4 py-3 rounded-xl outline-none tracking-wider"
-            placeholder="Ex: MIMOSA"
-            autoFocus
-            autoComplete="off"
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-5 w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold flex items-center justify-center gap-2"
-          >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
-            Buscar e fotografar
-          </button>
-          <Link
-            href="/animal/new"
-            className="mt-3 w-full py-3 rounded-2xl bg-slate-100 text-slate-700 font-medium flex items-center justify-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Cadastrar sem busca
-          </Link>
-        </form>
+        </div>
       </main>
     </div>
   );

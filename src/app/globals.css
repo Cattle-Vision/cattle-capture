@@ -1,10 +1,7 @@
 @import "tailwindcss";
-/* Fonte Inter carregada via <link> no layout.tsx */
-
 
 /* ── Dialog / Modal (Lightbox) ── */
 dialog {
-  /* Reset dos estilos padrão do browser */
   position: fixed;
   inset: 0;
   padding: 0;
@@ -19,54 +16,57 @@ dialog {
 }
 
 dialog::backdrop {
-  background: rgba(0, 0, 0, 0.95);
-  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(6px);
 }
-
-
 
 /* ============================================================
    DESIGN SYSTEM — cattle-capture
-   Variáveis CSS globais, tipografia e utilitários base.
-   Todos os tokens ficam aqui para uso consistente em todo o app.
+   Paleta grounded: off-white + carbon + âmbar/caramelo
    ============================================================ */
 
-/* Fonte Inter importada no topo do arquivo */
-
-/* ── Tokens de Cor ── */
 :root {
-  /* Verde primário (marca) */
-  --color-brand: #16a34a;
-  --color-brand-light: #22c55e;
-  --color-brand-dark: #15803d;
-  --color-brand-muted: #dcfce7;
+  /* Primária — âmbar profundo (não o genérico green) */
+  --color-brand:       #B45309;   /* amber-700 */
+  --color-brand-light: #D97706;   /* amber-600 */
+  --color-brand-dark:  #92400E;   /* amber-800 */
+  --color-brand-muted: #FEF3C7;   /* amber-100 */
+  --color-brand-bg:    #FFFBEB;   /* amber-50 */
 
-  /* Neutros */
-  --color-bg: #f8fafc;
-  --color-surface: #ffffff;
-  --color-border: #e2e8f0;
-  --color-border-strong: #cbd5e1;
+  /* Background — off-white orgânico, não slate */
+  --color-bg:          #FAFAF8;
+  --color-surface:     #FFFFFF;
+  --color-surface-2:   #F5F4F1;
 
-  /* Texto */
-  --color-text-primary: #0f172a;
-  --color-text-secondary: #475569;
-  --color-text-muted: #94a3b8;
+  /* Bordas */
+  --color-border:       #E8E5DF;
+  --color-border-strong:#C9C5BB;
+
+  /* Texto — carbon, não slate */
+  --color-text-primary:   #1A1917;
+  --color-text-secondary: #57534E;
+  --color-text-muted:     #A8A29E;
 
   /* Status */
-  --color-error: #dc2626;
-  --color-error-bg: #fef2f2;
-  --color-success: #16a34a;
+  --color-error:    #DC2626;
+  --color-error-bg: #FEF2F2;
+  --color-error-border: #FECACA;
+  --color-warn:    #D97706;
+  --color-warn-bg: #FFFBEB;
+  --color-warn-border: #FDE68A;
+  --color-ok:      #16A34A;
 
-  /* Sombras */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  /* Sombras — mais suaves */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.07), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 8px -2px rgb(0 0 0 / 0.09), 0 2px 4px -2px rgb(0 0 0 / 0.06);
+  --shadow-lg: 0 12px 24px -6px rgb(0 0 0 / 0.12), 0 4px 8px -4px rgb(0 0 0 / 0.07);
 
   /* Radius */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
 }
 
 /* ── Reset Base ── */
@@ -75,81 +75,51 @@ dialog::backdrop {
 }
 
 html {
-  /* Altura dinâmica do viewport — corrige o bug do 100vh no Safari iOS */
   height: 100%;
   height: -webkit-fill-available;
 }
 
 body {
-  /* System font stack — Inter disponível em macOS/iOS/Windows 11 nativamente */
-  font-family: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont,
-    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'Space Grotesk', ui-sans-serif, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', system-ui, sans-serif;
   background-color: var(--color-bg);
   color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100%;
   min-height: -webkit-fill-available;
-
-  /* Previne o overscroll elástico que causa visual ruim em iOS */
   overscroll-behavior-y: none;
+  letter-spacing: -0.01em;
 }
 
-/* ── Inputs — Previne zoom automático no iOS (font-size deve ser ≥ 16px) ── */
-input,
-textarea,
-select {
+/* Previne zoom automático no iOS */
+input, textarea, select {
   font-size: 16px;
   font-family: inherit;
 }
 
-/* ── Touch targets mínimos e interatividade de cursor ── */
-button,
-a,
-[role="button"],
-input[type="button"],
-input[type="submit"],
-input[type="reset"],
-select,
-summary {
+button, a, [role="button"], input[type="button"],
+input[type="submit"], select, summary {
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
 
-button:disabled,
-[role="button"][aria-disabled="true"],
-input:disabled,
-select:disabled {
+button:disabled, [role="button"][aria-disabled="true"],
+input:disabled, select:disabled {
   cursor: not-allowed;
-  opacity: 0.6;
+  opacity: 0.5;
 }
 
-/* Transições suaves globais para elementos interativos */
 a, button, [role="button"] {
   transition-property: color, background-color, border-color, opacity, box-shadow, transform;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
+  transition-duration: 140ms;
 }
 
-/* Botões menores têm padding extra para garantir área de toque */
-.touch-target {
-  position: relative;
-}
-.touch-target::after {
-  content: '';
-  position: absolute;
-  inset: -8px;
-}
-
-/* ── Scrollbar estilizada (desktop) ── */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: var(--color-border-strong);
   border-radius: 3px;
@@ -157,67 +127,134 @@ a, button, [role="button"] {
 
 /* ── Animações ── */
 @keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes fadeIn {
   from { opacity: 0; }
-  to { opacity: 1; }
+  to   { opacity: 1; }
 }
-
 @keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
 }
-
-.animate-slide-up {
-  animation: slideUp 0.25s ease-out;
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.2s ease-out;
-}
-
-.animate-scale-in {
-  animation: scaleIn 0.2s ease-out;
-}
-
-/* ── Skeleton Loading ── */
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
+  0%   { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
 
+.animate-slide-up  { animation: slideUp  0.22s ease-out; }
+.animate-fade-in   { animation: fadeIn   0.18s ease-out; }
+.animate-scale-in  { animation: scaleIn  0.18s ease-out; }
+
+/* ── Skeleton ── */
 .skeleton {
   background: linear-gradient(
     90deg,
-    var(--color-border) 25%,
-    #f1f5f9 50%,
-    var(--color-border) 75%
+    var(--color-surface-2) 25%,
+    #EDEDEA 50%,
+    var(--color-surface-2) 75%
   );
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.4s infinite;
   border-radius: var(--radius-sm);
 }
 
-/* ── Utilitários safe-area ── */
-.pb-safe {
-  padding-bottom: env(safe-area-inset-bottom);
+/* ── safe-area ── */
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+.pt-safe { padding-top:    env(safe-area-inset-top); }
+
+/* ── Componentes de formulário base ── */
+.field-input {
+  width: 100%;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color 140ms, box-shadow 140ms;
+  font-family: inherit;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.field-input::placeholder { color: var(--color-text-muted); }
+.field-input:focus {
+  border-color: var(--color-brand-light);
+  box-shadow: 0 0 0 3px rgb(217 119 6 / 0.12);
 }
 
-.pt-safe {
-  padding-top: env(safe-area-inset-top);
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.8rem 1.5rem;
+  background: var(--color-brand);
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  border-radius: var(--radius-md);
+  border: none;
+  letter-spacing: -0.01em;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12), inset 0 1px 0 rgb(255 255 255 / 0.1);
+}
+.btn-primary:hover:not(:disabled) { background: var(--color-brand-light); }
+.btn-primary:active:not(:disabled) { transform: scale(0.98); }
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.25rem;
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  font-size: 14px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-border);
+}
+.btn-ghost:hover:not(:disabled) { background: var(--color-border); }
+.btn-ghost:active:not(:disabled) { transform: scale(0.98); }
+
+/* ── Card base ── */
+.card {
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xs);
+}
+
+/* ── Label de campo ── */
+.field-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+/* ── Error banner ── */
+.error-banner {
+  background: var(--color-error-bg);
+  border: 1.5px solid var(--color-error-border);
+  color: var(--color-error);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 1rem;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ── Warn banner ── */
+.warn-banner {
+  background: var(--color-warn-bg);
+  border: 1.5px solid var(--color-warn-border);
+  color: var(--color-warn);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 1rem;
+  font-size: 14px;
+  font-weight: 500;
 }

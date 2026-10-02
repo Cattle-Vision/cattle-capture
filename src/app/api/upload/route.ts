@@ -19,14 +19,14 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get("file");
     const animalId = String(formData.get("animalId") ?? "");
-    const view = String(formData.get("view") ?? "REAR").toUpperCase() === "REAR" ? "REAR" : "REAR";
+    const view = "REAR";
 
     if (!(file instanceof File) || !animalId) {
       return NextResponse.json({ error: "Arquivo ou animal ausente." }, { status: 400 });
     }
 
     if (file.size < 20_000) {
-      return NextResponse.json({ error: "Foto pequena demais para o dataset de ICC." }, { status: 400 });
+      return NextResponse.json({ error: "Foto pequena demais (mínimo ~20 KB)." }, { status: 400 });
     }
     if (file.size > 12 * 1024 * 1024) {
       return NextResponse.json({ error: "Arquivo maior que 12 MB." }, { status: 400 });
@@ -38,24 +38,19 @@ export async function POST(request: Request) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    
-    // Execute AI Model!
+
+    // Roda o modelo AI — pode retornar null se o runtime ONNX não estiver disponível
+    // neste ambiente serverless. Nesse caso a foto é salva sem score e sem aviso de qualidade.
     const aiScore = await detectRearScore(buffer);
 
-    if (aiScore === null || aiScore < 40.0) {
-      return NextResponse.json(
-        { error: `Foto rejeitada. A IA não identificou uma traseira bovina com confiança suficiente (${aiScore ?? 0}%).` },
-        { status: 400 }
-      );
-    }
-
+    // Envia para o Vercel Blob Storage
     const filename = safeJpegName(animal.tag);
-    
     const blob = await put(filename, buffer, {
-      access: 'public',
-      contentType: 'image/jpeg',
+      access: "public",
+      contentType: "image/jpeg",
     });
 
+    // Sempre salva a foto — o score baixo é apenas um aviso, não um bloqueio
     const photo = await prisma.photo.create({
       data: {
         animalId,
@@ -67,10 +62,15 @@ export async function POST(request: Request) {
 
     await prisma.animal.update({ where: { id: animalId }, data: { updatedAt: new Date() } });
 
-    return NextResponse.json({ success: true, photo, score: aiScore }, { status: 201 });
+    // lowQuality = true quando o modelo rodou e a confiança foi baixa
+    const lowQuality = aiScore !== null && aiScore < 40.0;
+
+    return NextResponse.json(
+      { success: true, photo, score: aiScore, lowQuality },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("Upload Error:", error);
     return NextResponse.json({ error: "Falha no upload" }, { status: 500 });
   }
 }
-

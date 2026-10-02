@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { deleteStoredFile } from "@/lib/storage";
 import { isValidTag, normalizeTag } from "@/lib/animal";
+import { del } from "@vercel/blob";
 
 async function canAccess(ownerId: number, session: { user: { id: string; role: string } }) {
   return ownerId === Number(session.user.id) || session.user.role === "ADMIN";
@@ -115,7 +115,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Proibido" }, { status: 403 });
     }
 
-    await Promise.allSettled(animal.photos.map((photo) => deleteStoredFile(photo.filePath)));
+    await Promise.allSettled(animal.photos.map((photo) => del(photo.filePath)));
     await prisma.animal.delete({ where: { id: animal.id } });
     return NextResponse.json({ success: true });
   } catch {

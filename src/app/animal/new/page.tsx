@@ -16,28 +16,18 @@ interface FormData {
   age: string;
 }
 
-function Field({
-  label,
-  required,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
+const inputClass = "field-input";
+
+function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-sm font-semibold text-slate-700">
-        {label}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
+      <label className="field-label">
+        {label}{required && <span style={{ color: "var(--color-error)" }} className="ml-0.5">*</span>}
       </label>
       {children}
     </div>
   );
 }
-
-const inputClass =
-  "w-full border border-slate-200 bg-slate-50 focus:bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 px-4 py-3 rounded-xl outline-none transition text-slate-900 placeholder:text-slate-400";
 
 function NewAnimalForm() {
   const router = useRouter();
@@ -53,30 +43,21 @@ function NewAnimalForm() {
     age: "",
   });
 
-  const set = (field: keyof FormData) => (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => setFormData((prev) => ({ ...prev, [field]: e.target.value }));
+  const set = (field: keyof FormData) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setFormData((prev) => ({ ...prev, [field]: e.target.value }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const tag = normalizeTag(formData.tag);
 
     if (!isValidTag(tag)) {
-      toast("Informe um brinco válido, ex: NEL-0142.", "error");
+      toast("Informe um brinco válido (mínimo 2 caracteres), ex: NEL-0142.", "error");
       return;
     }
-    if (!formData.breed.trim()) {
-      toast("Informe a raça do animal.", "error");
-      return;
-    }
-    if (!formData.weight || Number(formData.weight) <= 0) {
-      toast("Informe um peso válido.", "error");
-      return;
-    }
-    if (!formData.age || Number(formData.age) < 0) {
-      toast("Informe uma idade válida.", "error");
-      return;
-    }
+    if (!formData.breed.trim()) { toast("Informe a raça do animal.", "error"); return; }
+    if (!formData.weight || Number(formData.weight) <= 0) { toast("Informe um peso válido.", "error"); return; }
+    if (!formData.age || Number(formData.age) < 0) { toast("Informe uma idade válida.", "error"); return; }
 
     setLoading(true);
 
@@ -95,12 +76,13 @@ function NewAnimalForm() {
       const data = await res.json().catch(() => ({}));
 
       if (res.ok) {
-        toast("Animal cadastrado. Agora fotografe a traseira.", "success");
-        router.push(`/camera?animalId=${data.id}&animalName=${encodeURIComponent(data.name || data.tag)}`);
+        toast("Animal cadastrado com sucesso.", "success");
+        // Vai para o perfil — o usuário decide quando tirar foto
+        router.push(`/animal/${data.id}`);
         return;
       }
       if (res.status === 409 && data.id) {
-        toast("Esse brinco já existe. Abrindo o animal.", "info");
+        toast("Brinco já cadastrado. Abrindo o perfil.", "info");
         router.push(`/animal/${data.id}`);
         return;
       }
@@ -113,31 +95,37 @@ function NewAnimalForm() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 flex flex-col">
-      <header className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-3 sticky top-0 z-10 shadow-sm">
+    <div className="min-h-[100dvh] flex flex-col" style={{ background: "var(--color-bg)" }}>
+      <header
+        className="border-b px-4 py-3 flex items-center gap-3 sticky top-0 z-10"
+        style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
+      >
         <button
           onClick={() => router.back()}
           aria-label="Voltar"
-          className="p-2 rounded-xl hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
+          className="p-2 rounded-lg"
+          style={{ color: "var(--color-text-secondary)" }}
         >
-          <ArrowLeft className="w-5 h-5 text-slate-700" />
+          <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-base font-bold text-slate-900">Cadastrar animal</h1>
+        <h1 className="text-base font-bold" style={{ color: "var(--color-text-primary)" }}>
+          Cadastrar animal
+        </h1>
       </header>
 
       <main className="flex-1 p-4 sm:p-6">
         <div className="max-w-xl mx-auto">
-          <p className="text-sm text-slate-400 mb-6">
-            O brinco é o identificador único. Sem ele a foto não entra no dataset de ICC.
+          <p className="text-sm mb-6" style={{ color: "var(--color-text-muted)" }}>
+            O brinco é o identificador único do animal no dataset de ICC.
           </p>
 
-          <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col gap-5">
+          <form onSubmit={handleSubmit} className="card p-5 flex flex-col gap-5">
             <Field label="Brinco / identificador" required>
               <input
                 type="text"
                 value={formData.tag}
                 onChange={(e) => setFormData((prev) => ({ ...prev, tag: e.target.value.toUpperCase() }))}
-                className={`${inputClass} tracking-wider`}
+                className={`${inputClass} tracking-widest`}
                 placeholder="Ex: NEL-0142"
                 required
                 autoComplete="off"
@@ -158,9 +146,7 @@ function NewAnimalForm() {
             <Field label="Raça" required>
               <select value={formData.breed} onChange={set("breed")} className={inputClass} required>
                 {BREEDS.map((breed) => (
-                  <option key={breed} value={breed}>
-                    {breed}
-                  </option>
+                  <option key={breed} value={breed}>{breed}</option>
                 ))}
               </select>
             </Field>
@@ -168,9 +154,7 @@ function NewAnimalForm() {
             <Field label="Sexo" required>
               <select value={formData.sex} onChange={set("sex")} className={inputClass}>
                 {SEX_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
             </Field>
@@ -189,7 +173,6 @@ function NewAnimalForm() {
                   inputMode="decimal"
                 />
               </Field>
-
               <Field label="Idade (meses)" required>
                 <input
                   type="number"
@@ -207,16 +190,10 @@ function NewAnimalForm() {
             <button
               type="submit"
               disabled={loading}
-              className={`w-full py-4 rounded-2xl text-white font-semibold text-base transition flex items-center justify-center gap-2 mt-2 ${loading ? "bg-slate-300 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700"}`}
+              className="btn-primary w-full py-4 mt-1 text-base"
             >
-              {loading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Salvando...
-                </>
-              ) : (
-                "Cadastrar e abrir câmera"
-              )}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+              {loading ? "Salvando…" : "Cadastrar animal"}
             </button>
           </form>
         </div>
@@ -227,7 +204,7 @@ function NewAnimalForm() {
 
 export default function NewAnimalPage() {
   return (
-    <Suspense fallback={<div className="min-h-[100dvh] bg-slate-50" />}>
+    <Suspense fallback={<div className="min-h-[100dvh]" style={{ background: "var(--color-bg)" }} />}>
       <NewAnimalForm />
     </Suspense>
   );

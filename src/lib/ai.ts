@@ -1,25 +1,35 @@
-import * as ort from "onnxruntime-node";
 import sharp from "sharp";
 import path from "path";
 
-// Initialize the ONNX session
-let session: ort.InferenceSession | null = null;
+// ONNX Runtime is only available in Node.js environments (not serverless edge).
+// We load it dynamically to avoid crashing on Vercel Serverless Functions
+// where native binaries may not be available.
+let session: any | null = null;
+let ortModule: any | null = null;
+let sessionLoadAttempted = false;
 
-export async function initModel() {
-  if (session) return session;
+export async function initModel(): Promise<{ session: any; ort: any } | null> {
+  if (session && ortModule) return { session, ort: ortModule };
+  if (sessionLoadAttempted) return null;
+  sessionLoadAttempted = true;
+
   const modelPath = path.join(process.cwd(), "identifier.onnx");
   try {
+    const ort = await import("onnxruntime-node");
     session = await ort.InferenceSession.create(modelPath);
-    return session;
+    ortModule = ort;
+    return { session, ort };
   } catch (err) {
-    console.error("Falha ao carregar o modelo ONNX:", err);
+    console.warn("[AI] Modelo ONNX não disponível neste ambiente:", (err as Error).message);
     return null;
   }
 }
 
 export async function detectRearScore(imageBuffer: Buffer): Promise<number | null> {
-  const sess = await initModel();
-  if (!sess) return null;
+  const loaded = await initModel();
+  if (!loaded) return null;
+
+  const { session: sess, ort } = loaded;
 
   try {
     // 1. Preprocess: Resize to 640x640, remove alpha, format as float32 RGB
@@ -43,7 +53,7 @@ export async function detectRearScore(imageBuffer: Buffer): Promise<number | nul
     // 2. Inference
     const results = await sess.run({ images: tensor });
     const output = results[sess.outputNames[0]]; // Shape: [1, 5, 8400]
-    
+
     // 3. Postprocess
     // output.data is a flattened Float32Array of 1 * 5 * 8400
     // [batch, row, col] -> The rows are: cx, cy, w, h, conf

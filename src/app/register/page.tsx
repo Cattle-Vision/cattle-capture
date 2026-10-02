@@ -47,74 +47,107 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center bg-slate-50 p-4">
-      <div className="w-full max-w-sm bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
-        <h1 className="text-2xl font-bold text-center text-slate-900 mb-2">Criar conta</h1>
-        <p className="text-center text-slate-500 mb-8 text-sm">Para cadastrar animais e capturar traseiras</p>
+    <div className="min-h-[100dvh] flex">
+      {/* Painel lateral */}
+      <div
+        className="hidden lg:flex w-80 xl:w-96 flex-col justify-between p-10"
+        style={{ background: "var(--color-brand)", color: "#fff" }}
+      >
+        <div>
+          <span className="text-3xl">🐄</span>
+          <h1 className="mt-6 text-2xl font-bold leading-snug">CattleCapture</h1>
+          <p className="mt-3 text-sm opacity-75 leading-relaxed">
+            Crie sua conta para começar a fotografar e construir o dataset de ICC bovino.
+          </p>
+        </div>
+        <p className="text-xs opacity-50">v2 · Dataset · ICC</p>
+      </div>
 
-        {error && (
-          <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-6 border border-red-100 text-center">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleRegister} className="flex flex-col gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Nome</label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full border border-slate-200 px-4 py-3 rounded-xl outline-none focus:ring-2 focus:ring-emerald-100 focus:border-emerald-400"
-              placeholder="João da Silva"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-slate-200 px-4 py-3 rounded-xl outline-none focus:ring-2 focus:ring-emerald-100 focus:border-emerald-400"
-              placeholder="seu@email.com"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Senha</label>
-            <input
-              type="password"
-              required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-slate-200 px-4 py-3 rounded-xl outline-none focus:ring-2 focus:ring-emerald-100 focus:border-emerald-400"
-              placeholder="mínimo 6 caracteres"
-            />
+      {/* Formulário */}
+      <div
+        className="flex-1 flex items-center justify-center p-6"
+        style={{ background: "var(--color-bg)" }}
+      >
+        <div className="w-full max-w-sm">
+          {/* Logo mobile */}
+          <div className="lg:hidden mb-8 flex items-center gap-2">
+            <span className="text-2xl">🐄</span>
+            <span className="font-bold text-lg" style={{ color: "var(--color-text-primary)" }}>
+              CattleCapture
+            </span>
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className={`w-full py-3 rounded-xl text-white font-semibold mt-2 flex items-center justify-center gap-2 ${loading ? "bg-slate-400" : "bg-emerald-600 hover:bg-emerald-700"}`}
+          <h2
+            className="text-2xl font-bold mb-1"
+            style={{ color: "var(--color-text-primary)" }}
           >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" /> Cadastrando...
-              </>
-            ) : (
-              "Cadastrar"
-            )}
-          </button>
-        </form>
+            Criar conta
+          </h2>
+          <p className="text-sm mb-8" style={{ color: "var(--color-text-muted)" }}>
+            Preencha os dados para se cadastrar
+          </p>
 
-        <p className="text-center text-sm text-slate-500 mt-6">
-          Já tem uma conta?{" "}
-          <Link href="/login" className="text-emerald-600 font-medium hover:underline">
-            Entrar
-          </Link>
-        </p>
+          {error && <div className="error-banner mb-6">{error}</div>}
+
+          <form onSubmit={handleRegister} className="flex flex-col gap-5">
+            <div>
+              <label className="field-label" htmlFor="reg-name">Nome</label>
+              <input
+                id="reg-name"
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="field-input"
+                placeholder="João da Silva"
+              />
+            </div>
+
+            <div>
+              <label className="field-label" htmlFor="reg-email">E-mail</label>
+              <input
+                id="reg-email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="field-input"
+                placeholder="seu@email.com"
+                inputMode="email"
+              />
+            </div>
+
+            <div>
+              <label className="field-label" htmlFor="reg-password">Senha</label>
+              <input
+                id="reg-password"
+                type="password"
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="field-input"
+                placeholder="mínimo 6 caracteres"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="btn-primary w-full mt-1 py-3.5"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {loading ? "Cadastrando…" : "Criar conta"}
+            </button>
+          </form>
+
+          <p className="mt-6 text-sm text-center" style={{ color: "var(--color-text-muted)" }}>
+            Já tem conta?{" "}
+            <Link href="/login" className="font-semibold" style={{ color: "var(--color-brand)" }}>
+              Entrar
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );
