@@ -32,7 +32,8 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ id: user.id, email: user.email }, { status: 201 });
-  } catch {
-    return NextResponse.json({ error: "Erro interno" }, { status: 500 });
+  } catch (error: any) {
+    console.error("REGISTER ERROR:", error);
+    return NextResponse.json({ error: "Erro interno", details: error?.message || String(error) }, { status: 500 });
   }
 }

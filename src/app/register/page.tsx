@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
+import { signIn } from "next-auth/react";
 
 export default function RegisterPage() {
   const [name, setName] = useState("");
@@ -25,8 +26,19 @@ export default function RegisterPage() {
     });
 
     if (res.ok) {
-      router.push("/login");
-      router.refresh();
+      const signInRes = await signIn("credentials", {
+        redirect: false,
+        email,
+        password,
+      });
+
+      if (signInRes?.error) {
+        setError("Conta criada, mas ocorreu um erro ao entrar automaticamente.");
+        setLoading(false);
+      } else {
+        router.push("/dashboard");
+        router.refresh();
+      }
     } else {
       const data = await res.json().catch(() => ({}));
       setError(data.error || "Erro ao cadastrar.");
