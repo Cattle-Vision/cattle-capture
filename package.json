@@ -7,7 +7,7 @@
     "predev": "node scripts/prepare-dev.mjs && prisma generate && prisma db push",
     "dev": "next dev --experimental-https",
     "dev:https": "node scripts/prepare-dev.mjs && prisma generate && prisma db push && next dev --experimental-https",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && prisma db push && next build",
     "start": "next start",
     "lint": "eslint",
     "db:push": "prisma db push",
