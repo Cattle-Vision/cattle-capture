@@ -88,6 +88,7 @@ export default function AnimalProfilePage() {
   const [animal, setAnimal] = useState<Animal | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [recalibratingAnimal, setRecalibratingAnimal] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Estado de Pré-Avaliação de Score IA antes do upload da galeria
@@ -277,6 +278,54 @@ export default function AnimalProfilePage() {
     }
   };
 
+  /* ── Recalcular Scores de Todas as Fotos Deste Animal ── */
+  const handleRecalibrateAnimal = async () => {
+    if (recalibratingAnimal || !animal) return;
+    setRecalibratingAnimal(true);
+    try {
+      const res = await fetch(`/api/animals/${animal.id}/recalibrate`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Falha ao recalcular fotos do animal");
+
+      toast(data.message || `${data.updatedCount ?? 0} foto(s) recalculada(s)!`, "success");
+
+      if (Array.isArray(data.results)) {
+        const scoreMap = new Map(
+          data.results.map((r: { id: string; newScore: number }) => [r.id, r.newScore])
+        );
+        setAnimal((prev) =>
+          prev
+            ? {
+                ...prev,
+                photos: (prev.photos ?? []).map((p) =>
+                  scoreMap.has(p.id) ? { ...p, score: scoreMap.get(p.id) as number } : p
+                ),
+              }
+            : prev
+        );
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erro ao recalcular scores do animal", "error");
+    } finally {
+      setRecalibratingAnimal(false);
+    }
+  };
+
+  /* ── Atualização quando uma foto individual é recalculada no lightbox ── */
+  const handlePhotoRecalibrated = (photoId: string, newScore: number) => {
+    setAnimal((prev) =>
+      prev
+        ? {
+            ...prev,
+            photos: (prev.photos ?? []).map((p) =>
+              p.id === photoId ? { ...p, score: newScore } : p
+            ),
+          }
+        : prev
+    );
+    toast(`Score da foto atualizado para ${Math.round(newScore)}%!`, "success");
+  };
+
   if (loading) return <PageSkeleton />;
 
   if (!animal) {
@@ -412,6 +461,25 @@ export default function AnimalProfilePage() {
                 Clique em qualquer imagem para ampliar em tela cheia ou verificar o Score IA
               </p>
             </div>
+
+            {photoCount > 0 && (
+              <button
+                type="button"
+                onClick={handleRecalibrateAnimal}
+                disabled={recalibratingAnimal}
+                className="btn-secondary py-2 px-3 text-xs flex items-center gap-1.5 shrink-0 border-emerald-500/30 hover:border-emerald-500/50"
+                title="Recalcular todos os scores das fotos desta vaca com a IA local calibrada"
+              >
+                {recalibratingAnimal ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+                )}
+                <span>
+                  {recalibratingAnimal ? "Recalculando…" : "Recalcular Scores da Vaca"}
+                </span>
+              </button>
+            )}
           </div>
 
           <PhotoGrid
@@ -693,6 +761,7 @@ export default function AnimalProfilePage() {
           photos={animal.photos}
           initialIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
+          onPhotoRecalibrated={handlePhotoRecalibrated}
         />
       )}
     </div>

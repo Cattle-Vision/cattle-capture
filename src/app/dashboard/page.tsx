@@ -26,11 +26,13 @@ import {
   Images,
   ChevronRight,
   Filter,
+  Loader2,
 } from "lucide-react";
 import { Animal, getPhotoUrl } from "@/lib/types";
 import { logoutAction } from "@/app/login/actions";
 import ThemeToggle from "@/components/ThemeToggle";
 import MobileNav from "@/components/MobileNav";
+import { useToast } from "@/components/ui/Toast";
 
 type FilterMode = "all" | "with_photos" | "without_photos";
 
@@ -161,7 +163,36 @@ export default function DashboardPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [query, setQuery] = useState("");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const [recalibratingHerd, setRecalibratingHerd] = useState(false);
   const router = useRouter();
+  const { toast } = useToast();
+
+  const handleRecalibrateHerd = async () => {
+    if (recalibratingHerd) return;
+    const ok = window.confirm(
+      "Deseja recalcular os scores de todas as fotos dos seus animais com a IA atual calibrada?"
+    );
+    if (!ok) return;
+
+    setRecalibratingHerd(true);
+    try {
+      const res = await fetch("/api/animals/recalibrate", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Falha ao recalcular");
+
+      toast(data.message || `${data.updatedCount ?? 0} fotos recalculadas com sucesso!`, "success");
+
+      const freshRes = await fetch("/api/animals");
+      if (freshRes.ok) {
+        const freshAnimals = await freshRes.json();
+        if (Array.isArray(freshAnimals)) setAnimals(freshAnimals);
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Erro ao recalcular scores", "error");
+    } finally {
+      setRecalibratingHerd(false);
+    }
+  };
 
   useEffect(() => {
     fetch("/api/animals")
@@ -357,6 +388,25 @@ export default function DashboardPage() {
                 </button>
               ))}
             </div>
+
+            {stats.totalPhotos > 0 && (
+              <button
+                type="button"
+                onClick={handleRecalibrateHerd}
+                disabled={recalibratingHerd}
+                className="btn-secondary py-2 px-3 text-xs flex items-center justify-center gap-1.5 shrink-0 border-emerald-500/30 hover:border-emerald-500/50"
+                title="Recalcular scores de todas as fotos do seu rebanho usando a IA calibrada localmente"
+              >
+                {recalibratingHerd ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+                )}
+                <span>
+                  {recalibratingHerd ? "Recalculando…" : "Recalcular Scores"}
+                </span>
+              </button>
+            )}
           </div>
         )}
 

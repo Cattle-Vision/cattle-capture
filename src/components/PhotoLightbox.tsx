@@ -10,17 +10,20 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { X, ChevronLeft, ChevronRight, Download, Sparkles } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Download, Sparkles, Loader2 } from 'lucide-react';
 import { Photo, getPhotoUrl } from '@/lib/types';
 
 interface PhotoLightboxProps {
   photos: Photo[];
   initialIndex: number;
   onClose: () => void;
+  onPhotoRecalibrated?: (photoId: string, newScore: number) => void;
 }
 
-export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLightboxProps) {
+export default function PhotoLightbox({ photos, initialIndex, onClose, onPhotoRecalibrated }: PhotoLightboxProps) {
+  const [localPhotos, setLocalPhotos] = useState<Photo[]>(photos);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const [recalibrating, setRecalibrating] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const touchStartX = useRef<number | null>(null);
 
@@ -69,11 +72,31 @@ export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLi
     touchStartX.current = null;
   };
 
-  const currentPhoto = photos[currentIndex];
+  const currentPhoto = localPhotos[currentIndex];
   if (!currentPhoto) return null;
 
   const url = getPhotoUrl(currentPhoto.id);
   const hasScore = typeof currentPhoto.score === 'number' && !Number.isNaN(currentPhoto.score);
+
+  const handleRecalibrateCurrent = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (recalibrating || !currentPhoto) return;
+    setRecalibrating(true);
+    try {
+      const res = await fetch(`/api/photos/${currentPhoto.id}/recalibrate`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha ao recalcular');
+      const updatedScore = data.newScore;
+      setLocalPhotos((prev) =>
+        prev.map((p, idx) => (idx === currentIndex ? { ...p, score: updatedScore } : p))
+      );
+      onPhotoRecalibrated?.(currentPhoto.id, updatedScore);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRecalibrating(false);
+    }
+  };
 
   return (
     <dialog
@@ -91,7 +114,7 @@ export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLi
       >
         <div className="flex items-center gap-2.5">
           <span className="text-white/90 text-sm font-bold bg-white/10 px-3 py-1 rounded-full backdrop-blur-sm">
-            {currentIndex + 1} / {photos.length}
+            {currentIndex + 1} / {localPhotos.length}
           </span>
           {hasScore && (
             <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
@@ -102,6 +125,23 @@ export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLi
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleRecalibrateCurrent}
+            disabled={recalibrating}
+            aria-label="Recalcular Score IA"
+            className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-full transition active:scale-95 flex items-center gap-1.5 text-xs font-bold disabled:opacity-50"
+            title="Recalcular Score desta foto com a IA local"
+          >
+            {recalibrating ? (
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+            ) : (
+              <Sparkles className="w-4 h-4 text-emerald-400" />
+            )}
+            <span className="hidden xs:inline">
+              {recalibrating ? 'Calculando…' : 'Recalcular'}
+            </span>
+          </button>
           <a
             href={url}
             download={`cattle_photo_${currentPhoto.id}.jpg`}
