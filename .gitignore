@@ -58,3 +58,4 @@ storage/uploads/
 tasks.md
 certificates
 .vercel
+.venv

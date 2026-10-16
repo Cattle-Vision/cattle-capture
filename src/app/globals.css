@@ -109,8 +109,9 @@ html.dark {
 
 html {
   height: 100%;
-  height: -webkit-fill-available;
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -121,10 +122,13 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100%;
-  min-height: -webkit-fill-available;
+  width: 100%;
+  max-width: 100vw;
   overscroll-behavior-y: none;
   overflow-x: hidden;
   letter-spacing: -0.012em;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   transition: background-color 180ms ease, color 180ms ease;
 }
 
@@ -215,7 +219,10 @@ a, button, [role="button"] {
   border: 1.5px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text-primary);
-  padding: 0.75rem 1rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  padding-left: 1rem;
+  padding-right: 1rem;
   border-radius: 12px;
   outline: none;
   transition: border-color 150ms, box-shadow 150ms, background-color 150ms;
@@ -229,6 +236,21 @@ a, button, [role="button"] {
 .field-input:focus {
   border-color: var(--color-brand);
   box-shadow: 0 0 0 3.5px rgb(16 185 129 / 0.18);
+}
+
+/* Inputs com ícone: garante espaçamento para o texto NUNCA ficar atrás do ícone */
+.field-input.pl-10,
+.field-input.pl-11,
+input.field-input.pl-10,
+input.field-input.pl-11 {
+  padding-left: 2.85rem !important;
+}
+
+.field-input.pr-10,
+.field-input.pr-11,
+input.field-input.pr-10,
+input.field-input.pr-11 {
+  padding-right: 2.85rem !important;
 }
 
 .field-label {

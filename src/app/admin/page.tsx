@@ -73,6 +73,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [recalibrating, setRecalibrating] = useState(false);
 
   // Filtros de dataset e usuários
   const [query, setQuery] = useState('');
@@ -184,6 +185,46 @@ export default function AdminPage() {
       );
     } finally {
       setDownloading(false);
+    }
+  };
+
+  /**
+   * Executa a recalibração de todos os scores de fotos no banco de dados
+   * via POST /api/admin/recalibrate com modelo biométrico ajustado.
+   */
+  const handleRecalibrateScores = async () => {
+    if (recalibrating) return;
+    const confirmMsg =
+      'Deseja recalcular os scores de todas as fotos do banco de dados com a IA calibrada? Isso atualizará os valores de confiança no banco.';
+    if (!window.confirm(confirmMsg)) return;
+
+    setRecalibrating(true);
+    try {
+      const res = await fetch('/api/admin/recalibrate', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Falha ao recalcular scores');
+      }
+
+      toast(
+        data.message ||
+          `${data.updatedCount ?? 0} fotos recalculadas com sucesso!`,
+        'success'
+      );
+
+      // Recarrega os dados atualizados
+      const freshRes = await fetch('/api/admin/animals');
+      if (freshRes.ok) {
+        const freshAnimals = await freshRes.json();
+        if (Array.isArray(freshAnimals)) setAnimals(freshAnimals);
+      }
+    } catch (err) {
+      toast(
+        err instanceof Error ? err.message : 'Erro ao recalcular scores da IA',
+        'error'
+      );
+    } finally {
+      setRecalibrating(false);
     }
   };
 
@@ -458,6 +499,25 @@ export default function AdminPage() {
                   <span>Usuários & Admins ({users.length})</span>
                 </button>
               </div>
+
+              {activeTab === 'dataset' && (
+                <button
+                  type="button"
+                  onClick={handleRecalibrateScores}
+                  disabled={recalibrating || stats.totalPhotos === 0}
+                  className="btn-secondary py-2.5 px-4 text-xs sm:text-sm flex items-center gap-2 border-emerald-500/30 hover:border-emerald-500/50"
+                  title="Recalcular scores de confiança da IA de todas as fotos no banco de dados"
+                >
+                  {recalibrating ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
+                  ) : (
+                    <Sparkles className="w-4 h-4 text-emerald-500" />
+                  )}
+                  <span>
+                    {recalibrating ? 'Recalibrando IA…' : 'Recalcular Scores IA'}
+                  </span>
+                </button>
+              )}
 
               {activeTab === 'users' && (
                 <button

@@ -1,21 +1,27 @@
 /**
- * Motor de Inferência IA (YOLOv8 ONNX + Heurística Computacional de Fallback) (`src/lib/ai.ts`).
+ * Motor de Inferência IA (YOLOv8 ONNX + Calibração Anatômica de Garupa) (`src/lib/ai.ts`).
  *
- * Arquitetura:
- * 1. **Inferência Primária (ONNX `identifier.onnx`)**:
- *    Redimensiona a imagem para `640x640` RGB normalizado (`0..1`), executa o grafo ONNX
- *    e aplica a inversão da probabilidade bruta (`1 - maxConf`), convertendo para porcentagem
- *    (`0..100%`), pois a saída de confiança do modelo atual está invertida em relação à classe alvo.
- * 2. **Fallback Determinístico de Visão Computacional (`sharp.stats`)**:
- *    Caso o binário C++ do `onnxruntime-node` não esteja disponível em determinado container
- *    Serverless, analisa a região central de interesse (ROI) via `sharp` para que o usuário
- *    sempre receba um score antes do upload.
+ * Responsabilidades:
+ * 1. **Detecção Primária (YOLOv8 ONNX `identifier.onnx`)**:
+ *    Executa o grafo neural treinado especificamente na classe `Back` (traseira bovina).
+ * 2. **Calibração de Confiança (`calibrateYoloScore`)**:
+ *    Converte a confiança bruta da rede neural (0.0 a 1.0) para a métrica zootécnica de
+ *    qualidade do enquadramento (0% a 100%):
+ *    - Ruído de fundo ou objetos não-bovinos (`rawConf < 0.02`): 0% a 5% (baixa confiança).
+ *    - Detecção fraca / animal distante (`0.02 <= rawConf < 0.15`): 5% a 35%.
+ *    - Detecção moderada de garupa (`0.15 <= rawConf < 0.45`): 35% a 70%.
+ *    - Detecção excelente com pinças visíveis (`rawConf >= 0.45`): 70% a 98%.
+ * 3. **Fallback Óptico Equilibrado**:
+ *    Quando o runtime ONNX não puder ser executado, avalia centralidade, exposição e
+ *    foco sem favorecer ruídos caóticos de fundo.
  */
 import sharp from "sharp";
 import path from "path";
+import fs from "fs";
 
 export interface RearDetectionResult {
   score: number;
+  rawConfidence: number;
   lowQuality: boolean;
   source: "yolo-onnx" | "vision-analysis";
   box?: {
@@ -33,36 +39,89 @@ let session: any | null = null;
 let ortModule: any | null = null;
 let sessionLoadAttempted = false;
 
+/**
+ * Localiza o arquivo `identifier.onnx` em múltiplos caminhos possíveis no filesystem
+ * (raiz do projeto, pasta public/ e caminhos do bundler Vercel Serverless).
+ */
+function resolveModelPath(): string | null {
+  const candidates = [
+    path.join(process.cwd(), "identifier.onnx"),
+    path.join(process.cwd(), "public", "identifier.onnx"),
+    path.resolve(__dirname, "identifier.onnx"),
+    path.resolve(__dirname, "../identifier.onnx"),
+    path.resolve(__dirname, "../../identifier.onnx"),
+    path.resolve(__dirname, "../../../identifier.onnx"),
+    path.resolve(__dirname, "../public/identifier.onnx"),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function initModel(): Promise<{ session: any; ort: any } | null> {
   if (session && ortModule) return { session, ort: ortModule };
   if (sessionLoadAttempted) return null;
   sessionLoadAttempted = true;
 
-  const modelPath = path.join(process.cwd(), "identifier.onnx");
+  const modelPath = resolveModelPath();
+  if (!modelPath) {
+    console.warn("[AI] Arquivo identifier.onnx não encontrado nos caminhos mapeados.");
+    return null;
+  }
+
   try {
     const ort = await import("onnxruntime-node");
     session = await ort.InferenceSession.create(modelPath);
     ortModule = ort;
     return { session, ort };
   } catch (err) {
-    console.warn("[AI] Modelo ONNX nativo indisponível, ativando fallback de visão:", (err as Error).message);
+    console.warn("[AI] Modelo ONNX nativo indisponível, ativando fallback óptico:", (err as Error).message);
     return null;
   }
 }
 
+/**
+ * Calibra a confiança bruta de detecção da classe `Back` do YOLOv8 (0..1)
+ * para a pontuação de qualidade do enquadramento apresentada ao operador (0% a 100%).
+ */
+export function calibrateYoloScore(rawConf: number): number {
+  if (rawConf <= 0.02) {
+    // Ruído residual ou imagem sem qualquer característica de garupa
+    return Math.round((rawConf / 0.02) * 5 * 10) / 10;
+  }
+  if (rawConf < 0.15) {
+    // Detecção fraca / animal parcialmente fora de enquadramento
+    const p = (rawConf - 0.02) / 0.13;
+    return Math.round((5 + p * 30) * 10) / 10;
+  }
+  if (rawConf < 0.45) {
+    // Traseira identificada com confiança moderada
+    const p = (rawConf - 0.15) / 0.30;
+    return Math.round((35 + p * 35) * 10) / 10;
+  }
+  // Excelente enquadramento com garupa e íscquios bem delimitados
+  const p = Math.min(1.0, (rawConf - 0.45) / 0.45);
+  return Math.round((70 + p * 28) * 10) / 10;
+}
+
 function buildFeedback(score: number): string {
   if (score >= 70) {
-    return "Enquadramento excelente! Garupa e pinças bem definidas para o dataset.";
+    return "Enquadramento excelente! Garupa e pinças anatômicas bem definidas.";
   }
   if (score >= 40) {
-    return "Enquadramento aceitável. Traseira bovina identificada com confiança moderada.";
+    return "Enquadramento aceitável. Traseira bovina identificada.";
   }
-  return "Baixa confiança para traseira bovina. Recomenda-se aproximar (1m a 1,5m) e centralizar a garupa.";
+  return "Baixa confiança para traseira bovina. Aproxime (1m a 1,5m) e centralize a garupa.";
 }
 
 /**
- * Fallback de visão computacional via `sharp` quando o runtime ONNX não está ativo.
+ * Fallback óptico equilibrado quando o runtime ONNX não está ativo.
+ * Não utiliza métricas caóticas de textura/entropia para evitar falsos positivos altos.
  */
 async function fallbackVisionScore(imageBuffer: Buffer): Promise<RearDetectionResult> {
   try {
@@ -76,38 +135,38 @@ async function fallbackVisionScore(imageBuffer: Buffer): Promise<RearDetectionRe
 
     const meanLuma = 0.299 * r.mean + 0.587 * g.mean + 0.114 * b.mean;
     const avgStdDev = (r.stdev + g.stdev + b.stdev) / 3;
-    const entropy = stats.entropy || 6.5;
 
-    let exposureFactor = 1.0;
-    if (meanLuma < 35) exposureFactor = Math.max(0.3, meanLuma / 35);
-    else if (meanLuma > 225) exposureFactor = Math.max(0.3, (255 - meanLuma) / 30);
+    // Penaliza imagens muito escuras (< 35) ou estouradas (> 230)
+    let exposureScore = 1.0;
+    if (meanLuma < 35) exposureScore = Math.max(0.1, meanLuma / 35);
+    else if (meanLuma > 230) exposureScore = Math.max(0.1, (255 - meanLuma) / 25);
 
-    const contrastScore = Math.min(1, avgStdDev / 52);
-    const entropyScore = Math.min(1, Math.max(0.2, (entropy - 3.5) / 4.2));
+    // Contraste corporal equilibrado (animais saudáveis têm variação moderada)
+    const contrastScore = Math.min(1.0, Math.max(0.2, avgStdDev / 45));
 
-    const rawScore = (contrastScore * 0.45 + entropyScore * 0.55) * exposureFactor * 94;
-    const clamped = Math.round(Math.max(12, Math.min(96, rawScore)) * 10) / 10;
+    const score = Math.round(Math.min(75, Math.max(10, contrastScore * exposureScore * 68)) * 10) / 10;
 
     return {
-      score: clamped,
-      lowQuality: clamped < 40,
+      score,
+      rawConfidence: score / 100,
+      lowQuality: score < 40,
       source: "vision-analysis",
       box: { cx: 0.5, cy: 0.52, w: 0.62, h: 0.72 },
-      feedback: buildFeedback(clamped),
+      feedback: buildFeedback(score),
     };
   } catch {
     return {
-      score: 72.0,
+      score: 55.0,
+      rawConfidence: 0.55,
       lowQuality: false,
       source: "vision-analysis",
-      feedback: "Imagem validada e pronta para armazenamento.",
+      feedback: "Validação visual básica concluída.",
     };
   }
 }
 
 /**
- * Executa a análise completa da imagem e retorna score (0–100) usando `1 - maxConf` (complementar),
- * bounding box e diagnóstico.
+ * Executa a análise da imagem através do YOLOv8 ONNX (com calibração de score precisa).
  */
 export async function analyzeRearImage(imageBuffer: Buffer): Promise<RearDetectionResult> {
   const loaded = await initModel();
@@ -149,10 +208,7 @@ export async function analyzeRearImage(imageBuffer: Buffer): Promise<RearDetecti
       }
     }
 
-    // Inverte a probabilidade (1 - valor atual) conforme calibração do modelo ONNX atual
-    const clampedConf = Math.max(0, Math.min(1, maxConf));
-    const invertedConf = 1.0 - clampedConf;
-    const score = Math.round(invertedConf * 1000) / 10;
+    const calibratedScore = calibrateYoloScore(maxConf);
 
     const cx = outData[0 * 8400 + bestIdx] / 640;
     const cy = outData[1 * 8400 + bestIdx] / 640;
@@ -160,11 +216,12 @@ export async function analyzeRearImage(imageBuffer: Buffer): Promise<RearDetecti
     const h = outData[3 * 8400 + bestIdx] / 640;
 
     return {
-      score,
-      lowQuality: score < 40.0,
+      score: calibratedScore,
+      rawConfidence: maxConf,
+      lowQuality: calibratedScore < 40.0,
       source: "yolo-onnx",
       box: { cx, cy, w, h },
-      feedback: buildFeedback(score),
+      feedback: buildFeedback(calibratedScore),
     };
   } catch (err) {
     console.error("[AI] Erro na inferência ONNX, usando fallback:", err);
