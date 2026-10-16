@@ -6,8 +6,6 @@
  * - Apresentar a plataforma CattleCapture (Visão Computacional & Dataset ICC Bovino)
  *   com suporte completo a Tema Claro e Escuro (`ThemeToggle`) e instalação PWA.
  */
-import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
 import Link from "next/link";
 import {
   Camera,
@@ -20,13 +18,12 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
+import { LandingAuthCheck } from "@/components/LandingAuthCheck";
 
-export default async function LandingPage() {
-  const session = await auth();
-  if (session?.user) redirect("/dashboard");
-
+export default function LandingPage() {
   return (
     <div className="min-h-[100dvh] flex flex-col bg-theme-bg text-theme-primary selection:bg-emerald-500 selection:text-white">
+      <LandingAuthCheck />
       {/* Header Glassmorphic */}
       <header className="glass-header sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-1 sm:gap-2">
