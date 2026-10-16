@@ -1,19 +1,20 @@
+/**
+ * Proxy Autenticado e Gerenciamento de Fotos (`GET / DELETE /api/photos/[id]`).
+ *
+ * Decisão Arquitetural:
+ * - O frontend renderiza todas as imagens usando `<img src="/api/photos/[id]">`.
+ * - Esta rota valida a sessão do usuário (dono do animal ou `ADMIN`), recupera os bytes
+ *   reais através do `readPhotoBuffer` (que autentica via SDK `@vercel/blob` em stores
+ *   privados ou decodifica Data URIs do PostgreSQL) e entrega o binário com cache HTTP otimizado.
+ */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { del } from "@vercel/blob";
+import { readPhotoBuffer, deleteStoredFile } from "@/lib/storage";
 
 type Params = { params: Promise<{ id: string }> };
 
-/**
- * GET /api/photos/[id]
- * Proxy autenticado: verifica sessão e retorna a imagem do Blob privado.
- * O frontend aponta <img src="/api/photos/[id]"> em vez da URL raw do blob.
- */
-export async function GET(
-  _request: Request,
-  { params }: Params
-) {
+export async function GET(_request: Request, { params }: Params) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
@@ -21,48 +22,43 @@ export async function GET(
 
   const { id } = await params;
 
-  const photo = await prisma.photo.findUnique({
-    where: { id },
-    include: { animal: true },
-  }).catch(() => null);
+  const photo = await prisma.photo
+    .findUnique({
+      where: { id },
+      include: { animal: { select: { ownerId: true, tag: true } } },
+    })
+    .catch(() => null);
 
   const isOwner = photo?.animal?.ownerId === Number(session.user.id);
   const isAdmin = session.user.role === "ADMIN";
   if (!photo || (!isOwner && !isAdmin)) {
-    return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+    return NextResponse.json({ error: "Foto não encontrada" }, { status: 404 });
   }
 
-  // Faz proxy da imagem do Blob Storage privado para o cliente
   try {
-    const imgRes = await fetch(photo.filePath);
-    if (!imgRes.ok) {
-      return NextResponse.json({ error: "Imagem não encontrada no storage" }, { status: 404 });
+    const resolved = await readPhotoBuffer(photo.filePath);
+    if (!resolved) {
+      return NextResponse.json(
+        { error: "Arquivo de imagem indisponível no storage" },
+        { status: 404 }
+      );
     }
 
-    const contentType = imgRes.headers.get("content-type") ?? "image/jpeg";
-    const body = imgRes.body;
-    if (!body) return NextResponse.json({ error: "Sem conteúdo" }, { status: 502 });
-
-    return new NextResponse(body, {
+    return new NextResponse(new Uint8Array(resolved.buffer), {
       status: 200,
       headers: {
-        "Content-Type": contentType,
-        "Cache-Control": "private, max-age=3600",
+        "Content-Type": resolved.contentType,
+        "Content-Length": String(resolved.buffer.byteLength),
+        "Cache-Control": "private, max-age=86400, stale-while-revalidate=604800",
       },
     });
-  } catch {
-    return NextResponse.json({ error: "Erro ao buscar imagem" }, { status: 502 });
+  } catch (err) {
+    console.error("[/api/photos/[id]] Erro ao servir imagem:", err);
+    return NextResponse.json({ error: "Erro ao carregar imagem" }, { status: 502 });
   }
 }
 
-/**
- * DELETE /api/photos/[id]
- * Remove a foto do Blob Storage e do banco.
- */
-export async function DELETE(
-  _request: Request,
-  { params }: Params
-) {
+export async function DELETE(_request: Request, { params }: Params) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
@@ -72,7 +68,7 @@ export async function DELETE(
     const { id } = await params;
     const photo = await prisma.photo.findUnique({
       where: { id },
-      include: { animal: true },
+      include: { animal: { select: { ownerId: true } } },
     });
 
     const isOwner = photo && photo.animal.ownerId === Number(session.user.id);
@@ -81,11 +77,12 @@ export async function DELETE(
       return NextResponse.json({ error: "Proibido ou não encontrado" }, { status: 403 });
     }
 
-    // Remove do blob storage (ignora se já não existir)
-    await del(photo.filePath).catch(() => {});
+    await deleteStoredFile(photo.filePath);
     await prisma.photo.delete({ where: { id: photo.id } });
+
     return NextResponse.json({ success: true });
-  } catch {
-    return NextResponse.json({ error: "Erro ao deletar" }, { status: 500 });
+  } catch (err) {
+    console.error("[/api/photos/[id]] Erro ao excluir foto:", err);
+    return NextResponse.json({ error: "Erro ao excluir foto" }, { status: 500 });
   }
 }

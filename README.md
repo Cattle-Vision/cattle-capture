@@ -1,31 +1,27 @@
-# CattleCapture
+# CattleCapture v2.5 · Dataset ICC Bovino (Vercel Ready)
 
-App para montar dataset de **fotos da traseira** de bois e vacas, com animal identificado pelo brinco, para treinar IA de **índice de condição corporal (ICC)**.
+Plataforma para captura padronizada, validação por IA (YOLO ONNX) e curadoria de imagens da região posterior bovina para treinamento de modelos de **Índice de Condição Corporal (ICC / BCS)**.
 
-Banco: **SQLite** via Prisma (não precisa de MySQL nem de Docker no PC).
+## Arquitetura Serverless (Vercel)
 
-## No seu PC (sem Docker)
+- **Banco de Dados:** PostgreSQL (Neon / Supabase / Local) via Prisma ORM.
+- **Armazenamento Híbrido Resiliente (`src/lib/storage.ts`):**
+  1. Otimização de imagem no cliente (`src/lib/image-client.ts` — máx 1600px JPEG ~250KB, evitando o limite de 4.5MB das Serverless Functions da Vercel) e no servidor (`sharp`).
+  2. Persistência no **Vercel Blob Storage** (`private` ou `public`) com leitura autenticada via proxy `/api/photos/[id]`.
+  3. Fallback automático para Data URI base64 otimizado no PostgreSQL caso os tokens do Vercel Blob não estejam ativos no ambiente.
+- **Autenticação & Login Admin via `.env` (`src/lib/auth.ts`):**
+  - Credenciais administrativas configuráveis diretamente no `.env`:
+    ```env
+    ADMIN_EMAIL="admin@cattlecapture.com"
+    ADMIN_PASSWORD="admin123"
+    ADMIN_NAME="Administrador CattleCapture"
+    ```
+  - No login, o usuário pode informar `admin@cattlecapture.com` (ou apenas `admin`) e a senha definida em `ADMIN_PASSWORD`. O sistema provisiona/sincroniza automaticamente o registro na tabela `User` com `role = "ADMIN"`.
+
+## Comandos Principais
 
 ```bash
 npm install
-npm run dev
+npm run dev      # Ambiente de desenvolvimento
+npm run build    # Build de produção (compatível com Vercel)
 ```
-
-Abra [http://localhost:3000](http://localhost:3000).
-
-O `npm run dev` cria o `.env` se faltar, gera o cliente Prisma e aplica o schema no SQLite (`prisma/dev.db`).
-
-- Cadastro: `/register` (e-mail com `admin` vira administrador)
-- Identificar pelo brinco: `/identify`
-- Câmera no celular na mesma rede: `npm run dev:https` (a câmera do navegador exige HTTPS fora de localhost)
-
-## No servidor (Docker)
-
-Definir `AUTH_SECRET` e subir com o `docker-compose.yml` do repositório. Volumes: fotos em `storage/uploads` e banco em `prisma/`.
-
-## Fluxo de campo
-
-1. Identificar o brinco (ou cadastrar raça, sexo, peso, idade).
-2. Fotografar **somente a traseira**, com garupa e pinças no quadro.
-3. Confirmar o checklist de qualidade.
-4. Admin exporta ZIP + `manifest.json` para treino.

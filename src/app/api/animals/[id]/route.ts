@@ -1,8 +1,24 @@
+/**
+ * Rotas de Detalhe, Edição e Exclusão de Animal (`GET / PATCH / DELETE /api/animals/[id]`).
+ *
+ * Responsabilidades:
+ * - Retornar a ficha completa do animal com suas fotos (sem trafegar `filePath` bruto).
+ * - Permitir atualização de atributos (brinco, apelido, raça, sexo, peso, idade) pelo dono ou `ADMIN`.
+ * - Excluir o animal e remover suas fotos do storage (`deleteStoredFile`).
+ */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { isValidTag, normalizeTag } from "@/lib/animal";
-import { del } from "@vercel/blob";
+import { deleteStoredFile } from "@/lib/storage";
+
+const photoMetadataSelect = {
+  id: true,
+  animalId: true,
+  view: true,
+  score: true,
+  createdAt: true,
+} as const;
 
 async function canAccess(ownerId: number, session: { user: { id: string; role: string } }) {
   return ownerId === Number(session.user.id) || session.user.role === "ADMIN";
@@ -21,7 +37,9 @@ export async function GET(
     const { id } = await params;
     const animal = await prisma.animal.findUnique({
       where: { id },
-      include: { photos: { orderBy: { createdAt: "desc" } } },
+      include: {
+        photos: { select: photoMetadataSelect, orderBy: { createdAt: "desc" } },
+      },
     });
 
     if (!animal || !(await canAccess(animal.ownerId, session))) {
@@ -84,7 +102,13 @@ export async function PATCH(
       data.age = age;
     }
 
-    const updated = await prisma.animal.update({ where: { id }, data });
+    const updated = await prisma.animal.update({
+      where: { id },
+      data,
+      include: {
+        photos: { select: photoMetadataSelect, orderBy: { createdAt: "desc" } },
+      },
+    });
     return NextResponse.json(updated);
   } catch {
     return NextResponse.json({ error: "Erro ao atualizar" }, { status: 500 });
@@ -104,7 +128,7 @@ export async function DELETE(
     const { id } = await params;
     const animal = await prisma.animal.findUnique({
       where: { id },
-      include: { photos: true },
+      include: { photos: { select: { id: true, filePath: true } } },
     });
 
     if (!animal) {
@@ -115,7 +139,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Proibido" }, { status: 403 });
     }
 
-    await Promise.allSettled(animal.photos.map((photo) => del(photo.filePath)));
+    await Promise.allSettled(animal.photos.map((photo) => deleteStoredFile(photo.filePath)));
     await prisma.animal.delete({ where: { id: animal.id } });
     return NextResponse.json({ success: true });
   } catch {

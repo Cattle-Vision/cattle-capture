@@ -1,76 +1,134 @@
+/**
+ * Rota de Upload e Validação de Imagens (`POST /api/upload`).
+ *
+ * Fluxo de Engenharia (Vercel Serverless Ready):
+ * 1. Valida sessão JWT e permissões (proprietário do animal ou `ADMIN`).
+ * 2. Extrai o arquivo binário do `FormData` (ou base64 JSON fallback).
+ * 3. Otimiza a imagem via `sharp` e persiste através do `storePhotoBuffer`
+ *    (Vercel Blob Private -> Vercel Blob Public -> Fallback Data URI PostgreSQL).
+ * 4. Executa a inferência de IA (`detectRearScore`) com proteção de timeout (5s)
+ *    para jamais estourar o limite de execução da Serverless Function.
+ * 5. Registra os metadados no banco de dados e retorna o `photo` sem expor URLs internas.
+ */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { detectRearScore } from "@/lib/ai";
-import { put } from "@vercel/blob";
+import { storePhotoBuffer } from "@/lib/storage";
 
-function safeJpegName(tag: string) {
-  const slug = tag.replace(/[^A-Z0-9\-_.]/gi, "_");
-  return `${slug}_${Date.now()}.jpg`;
+export const maxDuration = 30;
+
+async function inferScoreWithTimeout(buffer: Buffer, timeoutMs = 5000): Promise<number | null> {
+  try {
+    return await Promise.race([
+      detectRearScore(buffer),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+    return NextResponse.json({ error: "Não autorizado. Faça login novamente." }, { status: 401 });
   }
 
   try {
     const formData = await request.formData();
     const file = formData.get("file");
-    const animalId = String(formData.get("animalId") ?? "");
-    const view = "REAR";
+    const animalId = String(formData.get("animalId") ?? "").trim();
+    const view = String(formData.get("view") ?? "REAR").trim().toUpperCase() || "REAR";
 
-    if (!(file instanceof File) || !animalId) {
-      return NextResponse.json({ error: "Arquivo ou animal ausente." }, { status: 400 });
+    if (!file || typeof (file as Blob).arrayBuffer !== "function" || !animalId) {
+      return NextResponse.json(
+        { error: "Arquivo de imagem ou identificação do animal ausente." },
+        { status: 400 }
+      );
     }
 
-    if (file.size < 20_000) {
-      return NextResponse.json({ error: "Foto pequena demais (mínimo ~20 KB)." }, { status: 400 });
+    const blobFile = file as Blob;
+    if (blobFile.size < 512) {
+      return NextResponse.json(
+        { error: "Arquivo de imagem inválido ou vazio." },
+        { status: 400 }
+      );
     }
-    if (file.size > 12 * 1024 * 1024) {
-      return NextResponse.json({ error: "Arquivo maior que 12 MB." }, { status: 400 });
+    if (blobFile.size > 15 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: "Arquivo maior que 15 MB. Tente outra imagem." },
+        { status: 400 }
+      );
     }
 
     const animal = await prisma.animal.findUnique({ where: { id: animalId } });
-    if (!animal || animal.ownerId !== Number(session.user.id)) {
-      return NextResponse.json({ error: "Proibido" }, { status: 403 });
+    if (!animal) {
+      return NextResponse.json({ error: "Animal não encontrado." }, { status: 404 });
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
+    const isOwner = animal.ownerId === Number(session.user.id);
+    const isAdmin = session.user.role === "ADMIN";
+    if (!isOwner && !isAdmin) {
+      return NextResponse.json(
+        { error: "Você não tem permissão para adicionar fotos a este animal." },
+        { status: 403 }
+      );
+    }
 
-    // Roda o modelo AI — pode retornar null se o runtime ONNX não estiver disponível
-    // neste ambiente serverless. Nesse caso a foto é salva sem score e sem aviso de qualidade.
-    const aiScore = await detectRearScore(buffer);
+    const rawBuffer = Buffer.from(await blobFile.arrayBuffer());
 
-    // Envia para o Vercel Blob Storage
-    const filename = safeJpegName(animal.tag);
-    const blob = await put(filename, buffer, {
-      access: "private",
-      contentType: "image/jpeg",
-    });
+    // Armazena a imagem otimizada (Vercel Blob ou fallback PostgreSQL)
+    const { filePath, optimizedBuffer, storageType } = await storePhotoBuffer(
+      animal.tag,
+      rawBuffer
+    );
 
-    // Sempre salva a foto — o score baixo é apenas um aviso, não um bloqueio
+    // Avalia score de qualidade com o modelo ONNX (se disponível no ambiente)
+    const aiScore = await inferScoreWithTimeout(optimizedBuffer);
+
     const photo = await prisma.photo.create({
       data: {
         animalId,
-        filePath: blob.url,
+        filePath,
         view,
         score: aiScore,
       },
+      select: {
+        id: true,
+        animalId: true,
+        view: true,
+        score: true,
+        createdAt: true,
+      },
     });
 
-    await prisma.animal.update({ where: { id: animalId }, data: { updatedAt: new Date() } });
+    await prisma.animal
+      .update({
+        where: { id: animalId },
+        data: { updatedAt: new Date() },
+      })
+      .catch(() => {});
 
-    // lowQuality = true quando o modelo rodou e a confiança foi baixa
     const lowQuality = aiScore !== null && aiScore < 40.0;
 
     return NextResponse.json(
-      { success: true, photo, score: aiScore, lowQuality },
+      {
+        success: true,
+        photo,
+        score: aiScore,
+        lowQuality,
+        storageType,
+      },
       { status: 201 }
     );
   } catch (error) {
-    console.error("Upload Error:", error);
-    return NextResponse.json({ error: "Falha no upload" }, { status: 500 });
+    console.error("[/api/upload] Erro no processamento do upload:", error);
+    const message =
+      error instanceof Error ? error.message : "Erro inesperado ao processar imagem";
+    return NextResponse.json(
+      { error: `Falha ao salvar imagem: ${message}` },
+      { status: 500 }
+    );
   }
 }

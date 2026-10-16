@@ -5,7 +5,7 @@ import { ToastProvider } from "@/components/ui/Toast";
 import "./globals.css";
 
 export const viewport: Viewport = {
-  themeColor: "#B45309",
+  themeColor: "#059669",
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
@@ -13,8 +13,9 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "CattleCapture",
-  description: "Captura da traseira do gado para dataset de índice de condição corporal",
+  title: "CattleCapture · Visão Computacional & Dataset ICC Bovino",
+  description:
+    "Plataforma de captura padronizada e validação por IA da condição corporal bovina (ICC/BCS).",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -29,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap"
           rel="stylesheet"
         />
       </head>
@@ -44,4 +45,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-

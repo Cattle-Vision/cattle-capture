@@ -1,35 +1,40 @@
-import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
+/**
+ * Seed do Banco de Dados (`prisma/seed.ts`).
+ *
+ * Responsabilidade:
+ * - Provisionar ou atualizar o usuário Administrador a partir das variáveis
+ *   definidas no `.env` (`ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`).
+ */
+import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
 async function main() {
-  const adminEmail = 'admin@cattlecapture.com';
-  const adminPassword = 'admin';
-
-  const existingAdmin = await prisma.user.findUnique({
-    where: { email: adminEmail },
-  });
-
-  if (existingAdmin) {
-    console.log('Admin user já existe.');
-    return;
-  }
+  const adminEmail = (process.env.ADMIN_EMAIL || "admin@cattlecapture.com").trim().toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
+  const adminName = process.env.ADMIN_NAME || "Administrador do Sistema";
 
   const hashedPassword = await bcrypt.hash(adminPassword, 10);
 
-  const admin = await prisma.user.create({
-    data: {
-      name: 'Administrador do Sistema',
+  const admin = await prisma.user.upsert({
+    where: { email: adminEmail },
+    update: {
+      name: adminName,
+      password: hashedPassword,
+      role: "ADMIN",
+    },
+    create: {
+      name: adminName,
       email: adminEmail,
       password: hashedPassword,
-      role: 'ADMIN',
+      role: "ADMIN",
     },
   });
 
-  console.log('✅ Admin user criado com sucesso!');
+  console.log("✅ Admin provisionado via .env com sucesso!");
   console.log(`Email: ${admin.email}`);
-  console.log(`Password: ${adminPassword}`);
+  console.log(`Role:  ${admin.role}`);
 }
 
 main()

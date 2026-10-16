@@ -1,13 +1,21 @@
 "use client";
 
-import { useState } from "react";
+/**
+ * Página de Cadastro de Novo Animal (`src/app/animal/new/page.tsx`).
+ *
+ * Melhorias de UX:
+ * - Seletor visual de raça por chips interativos.
+ * - Seletor visual de sexo (Fêmea / Macho).
+ * - Botão duplo: "Cadastrar e Fotografar Agora" (vai direto para `/camera`) ou
+ *   "Salvar e Abrir Ficha" (vai para `/animal/[id]`).
+ */
+import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense } from "react";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, Camera, Check, Sparkles } from "lucide-react";
 import { useToast } from "@/components/ui/Toast";
 import { BREEDS, SEX_OPTIONS, isValidTag, normalizeTag } from "@/lib/animal";
 
-interface FormData {
+interface AnimalFormState {
   tag: string;
   name: string;
   breed: string;
@@ -16,25 +24,13 @@ interface FormData {
   age: string;
 }
 
-const inputClass = "field-input";
-
-function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="field-label">
-        {label}{required && <span style={{ color: "var(--color-error)" }} className="ml-0.5">*</span>}
-      </label>
-      {children}
-    </div>
-  );
-}
-
 function NewAnimalForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState<FormData>({
+  const [goToCamera, setGoToCamera] = useState(true);
+  const [formData, setFormData] = useState<AnimalFormState>({
     tag: (searchParams.get("tag") ?? "").toUpperCase(),
     name: "",
     breed: "Nelore",
@@ -43,11 +39,17 @@ function NewAnimalForm() {
     age: "",
   });
 
-  const set = (field: keyof FormData) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-      setFormData((prev) => ({ ...prev, [field]: e.target.value }));
+  const setField = (field: keyof AnimalFormState, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const generateSampleTag = () => {
+    const prefix = formData.breed.slice(0, 3).toUpperCase() || "BOV";
+    const num = String(Math.floor(1000 + Math.random() * 9000));
+    setField("tag", `${prefix}-${num}`);
+  };
+
+  const handleSubmit = async (e: React.FormEvent, openCameraAfter: boolean) => {
     e.preventDefault();
     const tag = normalizeTag(formData.tag);
 
@@ -55,11 +57,21 @@ function NewAnimalForm() {
       toast("Informe um brinco válido (mínimo 2 caracteres), ex: NEL-0142.", "error");
       return;
     }
-    if (!formData.breed.trim()) { toast("Informe a raça do animal.", "error"); return; }
-    if (!formData.weight || Number(formData.weight) <= 0) { toast("Informe um peso válido.", "error"); return; }
-    if (!formData.age || Number(formData.age) < 0) { toast("Informe uma idade válida.", "error"); return; }
+    if (!formData.breed.trim()) {
+      toast("Selecione a raça do animal.", "error");
+      return;
+    }
+    if (!formData.weight || Number(formData.weight) <= 0) {
+      toast("Informe um peso válido em kg.", "error");
+      return;
+    }
+    if (formData.age === "" || Number(formData.age) < 0) {
+      toast("Informe a idade em meses.", "error");
+      return;
+    }
 
     setLoading(true);
+    setGoToCamera(openCameraAfter);
 
     try {
       const res = await fetch("/api/animals", {
@@ -76,125 +88,227 @@ function NewAnimalForm() {
       const data = await res.json().catch(() => ({}));
 
       if (res.ok) {
-        toast("Animal cadastrado com sucesso.", "success");
-        // Vai para o perfil — o usuário decide quando tirar foto
-        router.push(`/animal/${data.id}`);
+        toast("Animal cadastrado com sucesso!", "success");
+        const label = data.name || data.tag || tag;
+        if (openCameraAfter) {
+          router.push(`/camera?animalId=${data.id}&animalName=${encodeURIComponent(label)}`);
+        } else {
+          router.push(`/animal/${data.id}`);
+        }
         return;
       }
+
       if (res.status === 409 && data.id) {
-        toast("Brinco já cadastrado. Abrindo o perfil.", "info");
+        toast("Brinco já existente. Abrindo ficha do animal.", "info");
         router.push(`/animal/${data.id}`);
         return;
       }
-      toast(data?.error ?? "Erro ao salvar o animal.", "error");
+
+      toast(data?.error ?? "Erro ao cadastrar o animal.", "error");
       setLoading(false);
     } catch {
-      toast("Erro de conexão. Tente novamente.", "error");
+      toast("Erro de conexão. Verifique sua internet.", "error");
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-[100dvh] flex flex-col" style={{ background: "var(--color-bg)" }}>
-      <header
-        className="border-b px-4 py-3 flex items-center gap-3 sticky top-0 z-10"
-        style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
-      >
-        <button
-          onClick={() => router.back()}
-          aria-label="Voltar"
-          className="p-2 rounded-lg"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        <h1 className="text-base font-bold" style={{ color: "var(--color-text-primary)" }}>
-          Cadastrar animal
-        </h1>
+    <div className="min-h-[100dvh] flex flex-col bg-slate-50">
+      <header className="glass-header sticky top-0 z-20">
+        <div className="max-w-2xl mx-auto px-4 h-15 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            aria-label="Voltar"
+            className="p-2 rounded-xl text-slate-600 hover:bg-slate-100"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div>
+            <h1 className="text-base font-extrabold text-slate-900">Novo Animal</h1>
+            <p className="text-xs text-slate-500">Cadastro no dataset de condição corporal</p>
+          </div>
+        </div>
       </header>
 
       <main className="flex-1 p-4 sm:p-6">
-        <div className="max-w-xl mx-auto">
-          <p className="text-sm mb-6" style={{ color: "var(--color-text-muted)" }}>
-            O brinco é o identificador único do animal no dataset de ICC.
-          </p>
-
-          <form onSubmit={handleSubmit} className="card p-5 flex flex-col gap-5">
-            <Field label="Brinco / identificador" required>
-              <input
-                type="text"
-                value={formData.tag}
-                onChange={(e) => setFormData((prev) => ({ ...prev, tag: e.target.value.toUpperCase() }))}
-                className={`${inputClass} tracking-widest`}
-                placeholder="Ex: NEL-0142"
-                required
-                autoComplete="off"
-              />
-            </Field>
-
-            <Field label="Apelido (opcional)">
-              <input
-                type="text"
-                value={formData.name}
-                onChange={set("name")}
-                className={inputClass}
-                placeholder="Ex: Mimosa"
-                autoComplete="off"
-              />
-            </Field>
-
-            <Field label="Raça" required>
-              <select value={formData.breed} onChange={set("breed")} className={inputClass} required>
-                {BREEDS.map((breed) => (
-                  <option key={breed} value={breed}>{breed}</option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Sexo" required>
-              <select value={formData.sex} onChange={set("sex")} className={inputClass}>
-                {SEX_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </Field>
-
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Peso (kg)" required>
+        <div className="max-w-2xl mx-auto">
+          <form
+            onSubmit={(e) => handleSubmit(e, true)}
+            className="card p-5 sm:p-7 flex flex-col gap-6"
+          >
+            {/* Brinco & Apelido */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="field-label !mb-0" htmlFor="tag-field">
+                    Brinco / Identificador <span className="text-red-500">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={generateSampleTag}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 hover:text-emerald-700"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    Gerar código
+                  </button>
+                </div>
                 <input
+                  id="tag-field"
+                  type="text"
+                  value={formData.tag}
+                  onChange={(e) => setField("tag", e.target.value.toUpperCase())}
+                  className="field-input font-mono-tag font-bold tracking-wider uppercase"
+                  placeholder="Ex: NEL-0142"
+                  required
+                  autoComplete="off"
+                />
+              </div>
+
+              <div>
+                <label className="field-label" htmlFor="name-field">
+                  Apelido / Nome (Opcional)
+                </label>
+                <input
+                  id="name-field"
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setField("name", e.target.value)}
+                  className="field-input"
+                  placeholder="Ex: Mimosa, Estrela"
+                  autoComplete="off"
+                />
+              </div>
+            </div>
+
+            {/* Seleção Visual de Raça */}
+            <div>
+              <label className="field-label">
+                Raça <span className="text-red-500">*</span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {BREEDS.map((breed) => {
+                  const active = formData.breed === breed;
+                  return (
+                    <button
+                      key={breed}
+                      type="button"
+                      onClick={() => setField("breed", breed)}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition ${
+                        active
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      {breed}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Seleção Visual de Sexo */}
+            <div>
+              <label className="field-label">
+                Sexo <span className="text-red-500">*</span>
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {SEX_OPTIONS.map((opt) => {
+                  const active = formData.sex === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setField("sex", opt.value)}
+                      className={`p-3.5 rounded-xl border text-left transition flex items-center justify-between ${
+                        active
+                          ? "bg-emerald-50/80 border-emerald-500 text-emerald-950 ring-2 ring-emerald-500/15"
+                          : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      <div>
+                        <p className="text-sm font-extrabold">{opt.value}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{opt.label}</p>
+                      </div>
+                      <div
+                        className={`w-5 h-5 rounded-full flex items-center justify-center ${
+                          active
+                            ? "bg-emerald-600 text-white"
+                            : "border border-slate-300"
+                        }`}
+                      >
+                        {active && <Check className="w-3 h-3" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Peso e Idade */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="field-label" htmlFor="weight-field">
+                  Peso estimado (kg) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="weight-field"
                   type="number"
                   value={formData.weight}
-                  onChange={set("weight")}
-                  className={inputClass}
-                  placeholder="450"
+                  onChange={(e) => setField("weight", e.target.value)}
+                  className="field-input"
+                  placeholder="Ex: 450"
                   min="1"
                   step="0.1"
                   required
                   inputMode="decimal"
                 />
-              </Field>
-              <Field label="Idade (meses)" required>
+              </div>
+
+              <div>
+                <label className="field-label" htmlFor="age-field">
+                  Idade (meses) <span className="text-red-500">*</span>
+                </label>
                 <input
+                  id="age-field"
                   type="number"
                   value={formData.age}
-                  onChange={set("age")}
-                  className={inputClass}
-                  placeholder="24"
+                  onChange={(e) => setField("age", e.target.value)}
+                  className="field-input"
+                  placeholder="Ex: 24"
                   min="0"
                   required
                   inputMode="numeric"
                 />
-              </Field>
+              </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="btn-primary w-full py-4 mt-1 text-base"
-            >
-              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
-              {loading ? "Salvando…" : "Cadastrar animal"}
-            </button>
+            {/* Botões de Ação */}
+            <div className="pt-2 flex flex-col sm:flex-row gap-3">
+              <button
+                type="submit"
+                disabled={loading}
+                className="btn-primary flex-1 py-4 text-sm"
+              >
+                {loading && goToCamera ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Camera className="w-4 h-4" />
+                )}
+                Cadastrar e Fotografar Agora
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={(e) => handleSubmit(e, false)}
+                className="btn-secondary py-4 px-5 text-sm"
+              >
+                {loading && !goToCamera ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : null}
+                Salvar e Abrir Ficha
+              </button>
+            </div>
           </form>
         </div>
       </main>
@@ -204,7 +318,7 @@ function NewAnimalForm() {
 
 export default function NewAnimalPage() {
   return (
-    <Suspense fallback={<div className="min-h-[100dvh]" style={{ background: "var(--color-bg)" }} />}>
+    <Suspense fallback={<div className="min-h-[100dvh] bg-slate-50" />}>
       <NewAnimalForm />
     </Suspense>
   );

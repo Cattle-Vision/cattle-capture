@@ -1,21 +1,17 @@
 'use client';
 
 /**
- * PhotoLightbox — Visualizador fullscreen de fotos.
+ * PhotoLightbox — Visualizador fullscreen de fotos (`src/components/PhotoLightbox.tsx`).
  *
- * Usa o elemento <dialog> nativo para acessibilidade e foco correto.
- * Suporta swipe/arrasto horizontal no mobile via pointer events.
- * Previne scroll do body enquanto aberto.
- *
- * Props:
- *   photos   — lista completa de fotos do animal
- *   initialIndex — índice da foto que abre o lightbox
- *   onClose  — callback para fechar
+ * Correção Crítica:
+ * - Utiliza `getPhotoUrl(currentPhoto.id)` (`/api/photos/[id]`) em vez da URL raw
+ *   do Vercel Blob privado, corrigindo a falha 403 ao ampliar fotos.
+ * - Adiciona botão de download individual da imagem e exibição do Score IA.
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { X, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Photo, filePathToUrl } from '@/lib/types';
+import { X, ChevronLeft, ChevronRight, Download, Sparkles } from 'lucide-react';
+import { Photo, getPhotoUrl } from '@/lib/types';
 
 interface PhotoLightboxProps {
   photos: Photo[];
@@ -26,11 +22,8 @@ interface PhotoLightboxProps {
 export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLightboxProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const dialogRef = useRef<HTMLDialogElement>(null);
-
-  // Swipe tracking
   const touchStartX = useRef<number | null>(null);
 
-  // Abrir dialog nativo e travar scroll do body
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -41,18 +34,16 @@ export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLi
     };
   }, []);
 
-  // Fechar ao clicar no backdrop (fora da imagem)
   const handleBackdropClick = (e: React.MouseEvent<HTMLDialogElement>) => {
     if (e.target === dialogRef.current) onClose();
   };
 
-  // Navegação por teclado
   const prev = useCallback(() => {
-    setCurrentIndex(i => (i > 0 ? i - 1 : photos.length - 1));
+    setCurrentIndex((i) => (i > 0 ? i - 1 : photos.length - 1));
   }, [photos.length]);
 
   const next = useCallback(() => {
-    setCurrentIndex(i => (i < photos.length - 1 ? i + 1 : 0));
+    setCurrentIndex((i) => (i < photos.length - 1 ? i + 1 : 0));
   }, [photos.length]);
 
   useEffect(() => {
@@ -65,7 +56,6 @@ export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLi
     return () => window.removeEventListener('keydown', handleKey);
   }, [onClose, prev, next]);
 
-  // Suporte a swipe no mobile
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
   };
@@ -80,7 +70,10 @@ export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLi
   };
 
   const currentPhoto = photos[currentIndex];
-  const url = filePathToUrl(currentPhoto.filePath);
+  if (!currentPhoto) return null;
+
+  const url = getPhotoUrl(currentPhoto.id);
+  const hasScore = typeof currentPhoto.score === 'number' && !Number.isNaN(currentPhoto.score);
 
   return (
     <dialog
@@ -88,39 +81,54 @@ export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLi
       onClick={handleBackdropClick}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="
-        fixed inset-0 m-0 p-0 w-full h-full max-w-none max-h-none
-        bg-black/95 backdrop-blur-sm
-        flex items-center justify-center
-        border-none outline-none
-        animate-fade-in
-      "
+      className="fixed inset-0 m-0 p-0 w-full h-full max-w-none max-h-none bg-slate-950/95 backdrop-blur-md flex items-center justify-center border-none outline-none animate-fade-in"
       style={{ padding: 0 }}
     >
-      {/* Botão fechar */}
-      <button
-        onClick={onClose}
-        aria-label="Fechar"
-        className="absolute top-4 right-4 z-10 bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition active:scale-95"
-        style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
+      {/* Top Bar */}
+      <div
+        className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/70 to-transparent"
+        style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
       >
-        <X className="w-5 h-5" />
-      </button>
+        <div className="flex items-center gap-2.5">
+          <span className="text-white/90 text-sm font-bold bg-white/10 px-3 py-1 rounded-full backdrop-blur-sm">
+            {currentIndex + 1} / {photos.length}
+          </span>
+          {hasScore && (
+            <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <Sparkles className="w-3.5 h-3.5" />
+              Confiança IA: {Math.round(currentPhoto.score as number)}%
+            </span>
+          )}
+        </div>
 
-      {/* Contador */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 text-white/60 text-sm font-medium z-10"
-        style={{ top: 'max(1rem, env(safe-area-inset-top))' }}
-      >
-        {currentIndex + 1} / {photos.length}
+        <div className="flex items-center gap-2">
+          <a
+            href={url}
+            download={`cattle_photo_${currentPhoto.id}.jpg`}
+            onClick={(e) => e.stopPropagation()}
+            aria-label="Baixar imagem"
+            className="bg-white/10 hover:bg-white/20 text-white p-2.5 rounded-full transition active:scale-95"
+            title="Baixar imagem"
+          >
+            <Download className="w-5 h-5" />
+          </a>
+          <button
+            onClick={onClose}
+            aria-label="Fechar"
+            className="bg-white/10 hover:bg-white/20 text-white p-2.5 rounded-full transition active:scale-95"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Imagem principal */}
-      <div className="w-full h-full flex items-center justify-center p-4">
+      <div className="w-full h-full flex items-center justify-center p-4 sm:p-10">
         <img
           key={currentPhoto.id}
           src={url}
           alt={`Foto ${currentIndex + 1}`}
-          className="max-w-full max-h-full object-contain animate-scale-in select-none"
+          className="max-w-full max-h-full object-contain rounded-lg animate-scale-in select-none shadow-2xl"
           draggable={false}
         />
       </div>
@@ -128,9 +136,12 @@ export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLi
       {/* Botão anterior */}
       {photos.length > 1 && (
         <button
-          onClick={(e) => { e.stopPropagation(); prev(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            prev();
+          }}
           aria-label="Foto anterior"
-          className="absolute left-2 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition active:scale-95 z-10"
+          className="absolute left-3 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition active:scale-95 z-10 backdrop-blur-sm"
         >
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -139,9 +150,12 @@ export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLi
       {/* Botão próximo */}
       {photos.length > 1 && (
         <button
-          onClick={(e) => { e.stopPropagation(); next(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            next();
+          }}
           aria-label="Próxima foto"
-          className="absolute right-2 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition active:scale-95 z-10"
+          className="absolute right-3 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition active:scale-95 z-10 backdrop-blur-sm"
         >
           <ChevronRight className="w-6 h-6" />
         </button>
@@ -150,15 +164,20 @@ export default function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLi
       {/* Dots de navegação */}
       {photos.length > 1 && (
         <div
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10"
-          style={{ bottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10 bg-black/50 px-3 py-1.5 rounded-full backdrop-blur-sm"
+          style={{ bottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}
         >
           {photos.map((_, i) => (
             <button
               key={i}
-              onClick={(e) => { e.stopPropagation(); setCurrentIndex(i); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setCurrentIndex(i);
+              }}
               aria-label={`Ir para foto ${i + 1}`}
-              className={`w-2 h-2 rounded-full transition-all ${i === currentIndex ? 'bg-white scale-125' : 'bg-white/40'}`}
+              className={`w-2 h-2 rounded-full transition-all ${
+                i === currentIndex ? 'bg-emerald-400 scale-125 w-4' : 'bg-white/40'
+              }`}
             />
           ))}
         </div>

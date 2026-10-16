@@ -1,23 +1,45 @@
 "use client";
 
-import { useState, useEffect } from "react";
+/**
+ * Painel Principal do Operador (`src/app/dashboard/page.tsx`).
+ *
+ * Melhorias Arquiteturais e Visuais:
+ * - Renderiza miniaturas via `getPhotoUrl(lastPhoto.id)` (`/api/photos/[id]`), eliminando
+ *   erros 403 com Vercel Blob privado.
+ * - Exibe KPIs do rebanho em tempo real (Total de Animais, Capturas, Peso Médio e Cobertura).
+ * - Suporta busca instantânea combinada com filtros de status fotográfico ("Todos", "Com fotos", "Sem fotos").
+ * - Barra de navegação inferior no mobile incluindo acesso rápido ao Painel Admin.
+ */
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, ShieldCheck, Camera, ImageOff, ScanLine, LogOut, Search } from "lucide-react";
-import { Animal, filePathToUrl } from "@/lib/types";
+import {
+  Plus,
+  ShieldCheck,
+  Camera,
+  ScanLine,
+  LogOut,
+  Search,
+  Sparkles,
+  Scale,
+  Calendar,
+  Images,
+  ChevronRight,
+  Filter,
+} from "lucide-react";
+import { Animal, getPhotoUrl } from "@/lib/types";
 import { logoutAction } from "@/app/login/actions";
+
+type FilterMode = "all" | "with_photos" | "without_photos";
 
 function Skeleton() {
   return (
     <div className="card overflow-hidden">
-      <div className="aspect-video skeleton" />
-      <div className="p-4 flex flex-col gap-2.5">
-        <div className="h-4 skeleton w-2/3 rounded" />
-        <div className="h-3 skeleton w-1/2 rounded" />
-        <div className="flex gap-2 mt-1">
-          <div className="h-8 skeleton flex-1 rounded-lg" />
-          <div className="h-8 w-8 skeleton rounded-lg" />
-        </div>
+      <div className="aspect-[16/10] skeleton rounded-none" />
+      <div className="p-4 flex flex-col gap-3">
+        <div className="h-4 skeleton w-2/3" />
+        <div className="h-3 skeleton w-1/2" />
+        <div className="h-10 skeleton w-full rounded-xl mt-1" />
       </div>
     </div>
   );
@@ -25,75 +47,106 @@ function Skeleton() {
 
 function AnimalCard({ animal }: { animal: Animal }) {
   const lastPhoto = animal.photos?.[0];
-  const photoUrl  = lastPhoto ? filePathToUrl(lastPhoto.filePath) : null;
+  const photoUrl = lastPhoto ? getPhotoUrl(lastPhoto.id) : null;
   const [imgErr, setImgErr] = useState(false);
   const label = animal.name || animal.tag;
+  const photoCount = animal.photos?.length ?? 0;
   const cameraUrl = `/camera?animalId=${animal.id}&animalName=${encodeURIComponent(label)}`;
+  const bestScore =
+    lastPhoto && typeof lastPhoto.score === "number" ? Math.round(lastPhoto.score) : null;
 
   return (
-    /* Card inteiro é clicável e leva ao perfil */
-    <div className="card overflow-hidden group relative hover:shadow-md transition-all hover:-translate-y-0.5">
-      {/* link principal — cobre o card inteiro */}
-      <Link href={`/animal/${animal.id}`} className="absolute inset-0 z-0" aria-label={`Ver ${label}`} />
+    <div className="card overflow-hidden group relative hover:shadow-lg hover:border-emerald-300/80 transition-all duration-200 flex flex-col justify-between">
+      {/* Link principal cobrindo a área superior/informativa */}
+      <Link
+        href={`/animal/${animal.id}`}
+        className="block focus:outline-none"
+        aria-label={`Ver ficha de ${label}`}
+      >
+        {/* Capa Fotográfica */}
+        <div className="aspect-[16/10] relative overflow-hidden bg-slate-100">
+          {photoUrl && !imgErr ? (
+            <img
+              src={photoUrl}
+              alt={label}
+              loading="lazy"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              onError={() => setImgErr(true)}
+            />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-100 to-slate-200/70 text-slate-400">
+              <span className="text-3xl opacity-50">🐄</span>
+              <span className="text-[11px] font-semibold text-slate-400">Sem foto</span>
+            </div>
+          )}
 
-      {/* Foto */}
-      <div className="aspect-video relative overflow-hidden" style={{ background: "var(--color-surface-2)" }}>
-        {photoUrl && !imgErr ? (
-          <img
-            src={photoUrl}
-            alt={label}
-            loading="lazy"
-            className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300"
-            onError={() => setImgErr(true)}
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-3xl opacity-30">🐄</div>
-        )}
+          {/* Gradiente sutil */}
+          <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
 
-        {/* Badge brinco */}
-        <div
-          className="absolute top-2 left-2 text-[11px] font-black px-2 py-0.5 rounded-md tracking-widest"
-          style={{ background: "var(--color-brand)", color: "#fff" }}
-        >
-          {animal.tag}
+          {/* Badge Brinco (Monospace) */}
+          <div className="absolute top-2.5 left-2.5 font-mono-tag text-xs font-bold px-2.5 py-1 rounded-lg bg-slate-900/85 text-white backdrop-blur-md shadow-xs tracking-wider">
+            {animal.tag}
+          </div>
+
+          {/* Score IA se disponível */}
+          {bestScore !== null && (
+            <div className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/90 text-white backdrop-blur-md shadow-xs">
+              <Sparkles className="w-3 h-3" />
+              {bestScore}%
+            </div>
+          )}
+
+          {/* Contador de fotos */}
+          <div className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full bg-black/65 text-white backdrop-blur-md">
+            <Images className="w-3 h-3 text-emerald-400" />
+            {photoCount} {photoCount === 1 ? "foto" : "fotos"}
+          </div>
         </div>
 
-        {/* Badge fotos */}
-        <div
-          className="absolute bottom-2 right-2 text-xs font-semibold px-2 py-0.5 rounded-full"
-          style={{ background: "rgba(0,0,0,0.65)", color: "#fff", backdropFilter: "blur(4px)" }}
-        >
-          {animal.photos?.length ?? 0} foto{(animal.photos?.length ?? 0) !== 1 ? "s" : ""}
-        </div>
-      </div>
+        {/* Informações do Animal */}
+        <div className="p-4 pb-3">
+          <div className="flex items-start justify-between gap-2 mb-1.5">
+            <h3 className="font-extrabold text-base text-slate-900 truncate group-hover:text-emerald-700 transition-colors">
+              {animal.name ? `${animal.name}` : `Brinco ${animal.tag}`}
+            </h3>
+            <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200/60 shrink-0">
+              {animal.breed}
+            </span>
+          </div>
 
-      {/* Info */}
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-2 mb-1">
-          <h3 className="font-bold text-base truncate" style={{ color: "var(--color-text-primary)" }}>
-            {label}
-          </h3>
-          <span
-            className="text-xs font-semibold px-2 py-0.5 rounded-md shrink-0"
-            style={{ background: "var(--color-surface-2)", color: "var(--color-text-muted)", border: "1px solid var(--color-border)" }}
-          >
-            {animal.breed}
-          </span>
+          <div className="flex items-center gap-3 text-xs font-medium text-slate-500">
+            <span>{animal.sex}</span>
+            <span>•</span>
+            <span className="inline-flex items-center gap-1">
+              <Scale className="w-3.5 h-3.5 text-slate-400" />
+              {animal.weight} kg
+            </span>
+            <span>•</span>
+            <span className="inline-flex items-center gap-1">
+              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+              {animal.age}m
+            </span>
+          </div>
         </div>
-        <p className="text-sm mb-3" style={{ color: "var(--color-text-muted)" }}>
-          {animal.sex} · {animal.weight} kg · {animal.age} meses
-        </p>
+      </Link>
 
-        {/* Botão câmera — z-10 para ficar acima do link absoluto */}
+      {/* Ações Rápidas */}
+      <div className="px-4 pb-4 pt-1 flex items-center gap-2">
         <Link
           href={cameraUrl}
-          onClick={e => e.stopPropagation()}
-          className="relative z-10 flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-bold text-white"
-          style={{ background: "var(--color-brand)" }}
+          className="btn-primary flex-1 py-2.5 text-xs"
           aria-label={`Fotografar ${label}`}
         >
           <Camera className="w-4 h-4" />
-          Fotografar traseira
+          Fotografar
+        </Link>
+        <Link
+          href={`/animal/${animal.id}`}
+          className="btn-secondary px-3 py-2.5 text-xs"
+          title="Abrir ficha e galeria"
+        >
+          Ficha
+          <ChevronRight className="w-3.5 h-3.5" />
         </Link>
       </div>
     </div>
@@ -105,44 +158,77 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [query, setQuery] = useState("");
+  const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const router = useRouter();
 
   useEffect(() => {
     fetch("/api/animals")
-      .then(r => { if (r.status === 401) { router.push("/login"); return null; } return r.json(); })
-      .then(d => { if (Array.isArray(d)) setAnimals(d); setLoading(false); })
+      .then((r) => {
+        if (r.status === 401) {
+          router.push("/login");
+          return null;
+        }
+        return r.json();
+      })
+      .then((d) => {
+        if (Array.isArray(d)) setAnimals(d);
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
 
     fetch("/api/admin/animals")
-      .then(r => { if (r.ok) setIsAdmin(true); })
+      .then((r) => {
+        if (r.ok) setIsAdmin(true);
+      })
       .catch(() => {});
   }, [router]);
 
-  const filtered = animals.filter(a => {
-    const q = query.trim().toUpperCase();
-    if (!q) return true;
-    return a.tag.includes(q) || a.name.toUpperCase().includes(q) || a.breed.toUpperCase().includes(q);
-  });
+  const stats = useMemo(() => {
+    const totalAnimals = animals.length;
+    const totalPhotos = animals.reduce((acc, a) => acc + (a.photos?.length ?? 0), 0);
+    const withPhotos = animals.filter((a) => (a.photos?.length ?? 0) > 0).length;
+    const avgWeight =
+      totalAnimals > 0
+        ? Math.round(animals.reduce((acc, a) => acc + (Number(a.weight) || 0), 0) / totalAnimals)
+        : 0;
+    const coverage = totalAnimals > 0 ? Math.round((withPhotos / totalAnimals) * 100) : 0;
+    return { totalAnimals, totalPhotos, withPhotos, avgWeight, coverage };
+  }, [animals]);
+
+  const filtered = useMemo(() => {
+    return animals.filter((a) => {
+      const photoCount = a.photos?.length ?? 0;
+      if (filterMode === "with_photos" && photoCount === 0) return false;
+      if (filterMode === "without_photos" && photoCount > 0) return false;
+
+      const q = query.trim().toUpperCase();
+      if (!q) return true;
+      return (
+        a.tag.toUpperCase().includes(q) ||
+        a.name.toUpperCase().includes(q) ||
+        a.breed.toUpperCase().includes(q)
+      );
+    });
+  }, [animals, query, filterMode]);
 
   return (
-    <div className="min-h-[100dvh]" style={{ background: "var(--color-bg)" }}>
-      {/* Header */}
-      <header
-        className="sticky top-0 z-10 border-b"
-        style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
-      >
-        <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <span className="text-xl">🐄</span>
-            <div>
-              <h1 className="text-sm font-bold leading-tight" style={{ color: "var(--color-text-primary)" }}>
-                Meus animais
+    <div className="min-h-[100dvh] flex flex-col bg-slate-50">
+      {/* Header Glassmorphic */}
+      <header className="glass-header sticky top-0 z-20">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white shadow-xs shrink-0">
+              <span className="text-lg">🐄</span>
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-sm sm:text-base font-extrabold text-slate-900 truncate">
+                Cattle<span className="text-emerald-600">Capture</span>
               </h1>
-              {!loading && (
-                <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>
-                  {animals.length} cadastrado{animals.length !== 1 ? "s" : ""}
-                </p>
-              )}
+              <p className="text-[11px] font-medium text-slate-500 truncate">
+                {loading
+                  ? "Carregando rebanho…"
+                  : `${stats.totalAnimals} animais · ${stats.totalPhotos} capturas`}
+              </p>
             </div>
           </div>
 
@@ -150,31 +236,33 @@ export default function DashboardPage() {
             {isAdmin && (
               <Link
                 href="/admin"
-                className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold rounded-lg"
-                style={{ background: "#FEF3C7", color: "#92400E" }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl bg-amber-100 text-amber-900 border border-amber-300/80 hover:bg-amber-200 transition"
               >
-                <ShieldCheck className="w-3 h-3" />
-                Admin
+                <ShieldCheck className="w-4 h-4 text-amber-700" />
+                <span>Admin</span>
               </Link>
             )}
             <Link
               href="/identify"
-              className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold rounded-lg"
-              style={{ background: "var(--color-text-primary)", color: "#fff" }}
+              className="hidden sm:inline-flex btn-secondary py-2 px-3.5 text-xs"
             >
-              <ScanLine className="w-3 h-3" />
-              Identificar
+              <ScanLine className="w-4 h-4 text-emerald-600" />
+              Identificar Brinco
             </Link>
             <Link
               href="/animal/new"
-              className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold rounded-lg"
-              style={{ background: "var(--color-brand)", color: "#fff" }}
+              className="hidden sm:inline-flex btn-primary py-2 px-3.5 text-xs"
             >
-              <Plus className="w-3 h-3" />
-              Novo
+              <Plus className="w-4 h-4" />
+              Novo Animal
             </Link>
             <form action={logoutAction}>
-              <button type="submit" className="p-2 rounded-lg" style={{ color: "var(--color-text-muted)" }} title="Sair">
+              <button
+                type="submit"
+                className="p-2.5 rounded-xl text-slate-500 hover:text-red-600 hover:bg-red-50 transition"
+                title="Sair da conta"
+                aria-label="Sair da conta"
+              >
                 <LogOut className="w-4 h-4" />
               </button>
             </form>
@@ -182,64 +270,167 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-5 pb-28 sm:pb-8">
-        {/* Busca */}
+      <main className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-6 py-6 pb-28 sm:pb-10">
+        {/* KPIs do Rebanho */}
         {!loading && animals.length > 0 && (
-          <div className="relative mb-5">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--color-text-muted)" }} />
-            <input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Buscar por brinco, apelido ou raça…"
-              className="field-input pl-9"
-            />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
+            <div className="card p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Animais
+              </p>
+              <p className="text-2xl font-extrabold text-slate-900 mt-1">
+                {stats.totalAnimals}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Cadastrados no painel</p>
+            </div>
+            <div className="card p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-emerald-600">
+                Dataset ICC
+              </p>
+              <p className="text-2xl font-extrabold text-emerald-700 mt-1">
+                {stats.totalPhotos}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Fotos de traseira</p>
+            </div>
+            <div className="card p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Cobertura
+              </p>
+              <p className="text-2xl font-extrabold text-slate-900 mt-1">
+                {stats.coverage}%
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {stats.withPhotos} de {stats.totalAnimals} com foto
+              </p>
+            </div>
+            <div className="card p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Peso Médio
+              </p>
+              <p className="text-2xl font-extrabold text-slate-900 mt-1">
+                {stats.avgWeight} <span className="text-sm font-semibold text-slate-500">kg</span>
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Média do lote</p>
+            </div>
           </div>
         )}
 
+        {/* Barra de Busca e Filtros */}
+        {!loading && animals.length > 0 && (
+          <div className="flex flex-col sm:flex-row gap-3 mb-6">
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Buscar por brinco (ex: NEL-0142), apelido ou raça…"
+                className="field-input pl-10"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shrink-0 overflow-x-auto">
+              <Filter className="w-3.5 h-3.5 text-slate-400 ml-2 mr-1 shrink-0" />
+              {(
+                [
+                  { id: "all", label: "Todos" },
+                  { id: "with_photos", label: "Com fotos" },
+                  { id: "without_photos", label: "Sem fotos" },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setFilterMode(tab.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+                    filterMode === tab.id
+                      ? "bg-emerald-600 text-white shadow-2xs"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Listagem */}
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} />)}
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} />
+            ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 gap-5 text-center">
-            <div
-              className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl"
-              style={{ background: "var(--color-brand-muted)", border: "2px dashed var(--color-brand)" }}
-            >
+          <div className="card py-20 px-6 flex flex-col items-center justify-center gap-4 text-center max-w-lg mx-auto my-6">
+            <div className="w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-3xl">
               🐄
             </div>
             <div>
-              <p className="font-bold" style={{ color: "var(--color-text-primary)" }}>
-                {query ? "Nenhum resultado" : "Nenhum animal cadastrado"}
-              </p>
-              <p className="text-sm mt-1" style={{ color: "var(--color-text-muted)" }}>
-                {query ? "Tente outro termo." : "Cadastre o primeiro animal para começar."}
+              <h2 className="text-lg font-extrabold text-slate-900">
+                {query || filterMode !== "all"
+                  ? "Nenhum animal encontrado para este filtro"
+                  : "Comece cadastrando seu primeiro animal"}
+              </h2>
+              <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
+                {query || filterMode !== "all"
+                  ? "Limpe a busca ou altere o filtro para visualizar todos os animais."
+                  : "Cadastre o brinco e os dados básicos do bovino para liberar a captura guiada de fotos."}
               </p>
             </div>
-            {!query && (
-              <Link href="/animal/new" className="btn-primary px-6 py-3">
-                <Plus className="w-4 h-4" />
-                Cadastrar animal
-              </Link>
+            {query || filterMode !== "all" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setFilterMode("all");
+                }}
+                className="btn-secondary px-5 py-2.5 text-sm"
+              >
+                Limpar filtros
+              </button>
+            ) : (
+              <div className="flex flex-wrap justify-center gap-3 mt-1">
+                <Link href="/animal/new" className="btn-primary px-6 py-3">
+                  <Plus className="w-4 h-4" />
+                  Cadastrar Primeiro Animal
+                </Link>
+                {isAdmin && (
+                  <Link href="/admin" className="btn-secondary px-5 py-3">
+                    <ShieldCheck className="w-4 h-4 text-amber-600" />
+                    Ver Todos no Painel Admin
+                  </Link>
+                )}
+              </div>
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map(a => <AnimalCard key={a.id} animal={a} />)}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filtered.map((a) => (
+              <AnimalCard key={a.id} animal={a} />
+            ))}
           </div>
         )}
       </main>
 
-      {/* FABs mobile */}
+      {/* Barra de Ação Inferior Mobile */}
       <div
-        className="sm:hidden fixed right-4 z-20 flex flex-col gap-3"
-        style={{ bottom: "max(1rem, env(safe-area-inset-bottom))" }}
+        className="sm:hidden fixed bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-2.5 flex items-center justify-around gap-2"
+        style={{ paddingBottom: "max(0.65rem, env(safe-area-inset-bottom))" }}
       >
-        <Link href="/identify" aria-label="Identificar" className="w-12 h-12 flex items-center justify-center rounded-full shadow-lg" style={{ background: "var(--color-text-primary)", color: "#fff" }}>
-          <ScanLine className="w-5 h-5" />
+        <Link
+          href="/identify"
+          className="flex-1 btn-secondary py-2.5 text-xs"
+        >
+          <ScanLine className="w-4 h-4 text-emerald-600" />
+          Identificar
         </Link>
-        <Link href="/animal/new" aria-label="Novo animal" className="w-14 h-14 flex items-center justify-center rounded-full shadow-xl" style={{ background: "var(--color-brand)", color: "#fff" }}>
-          <Plus className="w-6 h-6" />
+        <Link
+          href="/animal/new"
+          className="flex-1 btn-primary py-2.5 text-xs"
+        >
+          <Plus className="w-4 h-4" />
+          Novo Animal
         </Link>
       </div>
     </div>
