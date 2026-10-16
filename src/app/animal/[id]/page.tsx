@@ -140,7 +140,7 @@ export default function AnimalProfilePage() {
     if (!file || !animal) return;
 
     try {
-      const compressed = await compressImageFile(file, 1600, 0.86);
+      const compressed = await compressImageFile(file, 1600, 0.86, 3 / 4);
       setPendingPhoto({
         blob: compressed.blob,
         previewUrl: URL.createObjectURL(compressed.blob),

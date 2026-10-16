@@ -124,7 +124,122 @@ export async function GET(req: Request, context: Context) {
     return NextResponse.json(formattedUsers);
   }
 
-  // 3. GET /api/admin (verificação de status admin)
+  // 3. GET /api/admin/export (gera ZIP com fotos, manifest.json e dataset.csv)
+  if (subRoute === "export") {
+    try {
+      const AdmZip = (await import("adm-zip")).default;
+      const animals = await prisma.animal.findMany({
+        include: {
+          photos: { orderBy: { createdAt: "desc" } },
+          owner: { select: { name: true, email: true } },
+        },
+        orderBy: { updatedAt: "desc" },
+      });
+
+      const zip = new AdmZip();
+      const manifest: Array<Record<string, unknown>> = [];
+      const csvRows: string[] = [
+        [
+          "file",
+          "photo_id",
+          "animal_id",
+          "tag",
+          "name",
+          "breed",
+          "sex",
+          "weight_kg",
+          "age_months",
+          "view",
+          "ai_score",
+          "created_at",
+          "owner_name",
+          "owner_email",
+        ].join(","),
+      ];
+
+      for (const animal of animals) {
+        for (const photo of animal.photos) {
+          const fileName = `${animal.tag}_${photo.id}.jpg`;
+          const filePath = `images/${fileName}`;
+
+          try {
+            const photoData = await readPhotoBuffer(photo.filePath);
+            if (photoData?.buffer) {
+              zip.addFile(filePath, photoData.buffer);
+            }
+          } catch (err) {
+            console.error("[/api/admin/export] Erro ao ler foto:", photo.id, err);
+          }
+
+          manifest.push({
+            file: filePath,
+            photoId: photo.id,
+            animalId: animal.id,
+            tag: animal.tag,
+            name: animal.name,
+            breed: animal.breed,
+            sex: animal.sex,
+            weight: animal.weight,
+            age: animal.age,
+            view: photo.view,
+            aiScore: photo.score,
+            createdAt: photo.createdAt.toISOString(),
+            owner: {
+              name: animal.owner.name,
+              email: animal.owner.email,
+            },
+          });
+
+          const escapeCsv = (val: unknown) => {
+            const str = String(val ?? "");
+            return str.includes(",") || str.includes('"') || str.includes("\n")
+              ? `"${str.replace(/"/g, '""')}"`
+              : str;
+          };
+
+          csvRows.push(
+            [
+              escapeCsv(filePath),
+              escapeCsv(photo.id),
+              escapeCsv(animal.id),
+              escapeCsv(animal.tag),
+              escapeCsv(animal.name),
+              escapeCsv(animal.breed),
+              escapeCsv(animal.sex),
+              escapeCsv(animal.weight),
+              escapeCsv(animal.age),
+              escapeCsv(photo.view),
+              escapeCsv(photo.score ?? ""),
+              escapeCsv(photo.createdAt.toISOString()),
+              escapeCsv(animal.owner.name),
+              escapeCsv(animal.owner.email),
+            ].join(",")
+          );
+        }
+      }
+
+      zip.addFile("manifest.json", Buffer.from(JSON.stringify(manifest, null, 2), "utf-8"));
+      zip.addFile("dataset.csv", Buffer.from(csvRows.join("\n"), "utf-8"));
+
+      const zipBuffer = zip.toBuffer();
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const downloadFilename = `cattle-bcs-dataset-${timestamp}.zip`;
+
+      return new NextResponse(new Uint8Array(zipBuffer), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="${downloadFilename}"`,
+          "Content-Length": String(zipBuffer.length),
+        },
+      });
+    } catch (err) {
+      console.error("[/api/admin/export] Erro ao gerar ZIP:", err);
+      return NextResponse.json({ error: "Falha ao gerar dataset ZIP" }, { status: 500 });
+    }
+  }
+
+  // 4. GET /api/admin (verificação de status admin)
   if (slug.length === 0) {
     return NextResponse.json({ ok: true, admin: true });
   }

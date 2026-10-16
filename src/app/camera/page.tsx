@@ -48,37 +48,78 @@ type Screen = "viewfinder" | "preview" | "uploading" | "done" | "error";
 async function captureVideoFrame(
   video: HTMLVideoElement,
   canvas: HTMLCanvasElement,
+  reticleEl?: HTMLElement | null,
   maxDim = 1600,
-  quality = 0.86
+  quality = 0.88
 ): Promise<{ blob: Blob; width: number; height: number } | null> {
   try {
     const vw = video.videoWidth;
     const vh = video.videoHeight;
     if (!vw || !vh) return null;
 
-    let w = vw;
-    let h = vh;
-    if (w > maxDim || h > maxDim) {
-      if (w > h) {
-        h = Math.round((h * maxDim) / w);
-        w = maxDim;
-      } else {
-        w = Math.round((w * maxDim) / h);
-        h = maxDim;
+    let sx = 0;
+    let sy = 0;
+    let sw = vw;
+    let sh = vh;
+
+    // Se a marcação visual (mira) estiver presente na tela, recorta APENAS a região delimitada por ela
+    if (reticleEl) {
+      const videoRect = video.getBoundingClientRect();
+      const reticleRect = reticleEl.getBoundingClientRect();
+
+      if (videoRect.width > 0 && videoRect.height > 0) {
+        // O elemento <video> usa 'object-cover', então a escala aplicada à imagem intrínseca é:
+        const scale = Math.max(videoRect.width / vw, videoRect.height / vh);
+        const renderedW = vw * scale;
+        const renderedH = vh * scale;
+
+        // Deslocamento central do vídeo em relação ao container
+        const offsetX = (videoRect.width - renderedW) / 2;
+        const offsetY = (videoRect.height - renderedH) / 2;
+
+        const screenX = reticleRect.left - videoRect.left;
+        const screenY = reticleRect.top - videoRect.top;
+
+        // Projeta as coordenadas da marcação da tela de volta para os pixels reais do sensor
+        const rawSx = (screenX - offsetX) / scale;
+        const rawSy = (screenY - offsetY) / scale;
+        const rawSw = reticleRect.width / scale;
+        const rawSh = reticleRect.height / scale;
+
+        // Clampa rigorosamente dentro dos limites do frame
+        sx = Math.max(0, Math.min(vw - 20, rawSx));
+        sy = Math.max(0, Math.min(vh - 20, rawSy));
+        sw = Math.max(20, Math.min(vw - sx, rawSw));
+        sh = Math.max(20, Math.min(vh - sy, rawSh));
       }
     }
 
-    canvas.width = w;
-    canvas.height = h;
+    let dw = Math.round(sw);
+    let dh = Math.round(sh);
+
+    if (dw > maxDim || dh > maxDim) {
+      if (dw > dh) {
+        dh = Math.round((dh * maxDim) / dw);
+        dw = maxDim;
+      } else {
+        dw = Math.round((dw * maxDim) / dh);
+        dh = maxDim;
+      }
+    }
+
+    canvas.width = dw;
+    canvas.height = dh;
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return null;
-    ctx.drawImage(video, 0, 0, w, h);
+
+    // Desenha EXCLUSIVAMENTE os pixels delimitados pela mira de enquadramento
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, dw, dh);
 
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob((b) => resolve(b), "image/jpeg", quality)
     );
     if (!blob) return null;
-    return { blob, width: w, height: h };
+    return { blob, width: dw, height: dh };
   } catch {
     return null;
   }
@@ -93,6 +134,7 @@ function CameraContent() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scratchCanvasRef = useRef<HTMLCanvasElement>(null);
+  const reticleRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const nativeCamRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
@@ -297,7 +339,7 @@ function CameraContent() {
       if (tickCount % 5 === 0 && !inFlightServerCheck && navigator.onLine) {
         inFlightServerCheck = true;
         try {
-          const miniFrame = await captureVideoFrame(video, scratch, 320, 0.72);
+          const miniFrame = await captureVideoFrame(video, scratch, reticleRef.current, 320, 0.72);
           if (miniFrame && active) {
             const aiRes = await evaluatePhotoScoreBeforeUpload(miniFrame.blob);
             if (active && typeof aiRes.score === "number") {
@@ -354,7 +396,7 @@ function CameraContent() {
       return;
     }
 
-    const result = await captureVideoFrame(video, canvas, 1600, 0.86);
+    const result = await captureVideoFrame(video, canvas, reticleRef.current, 1600, 0.88);
     if (!result) {
       setCamErr("Não foi possível capturar o quadro. Use a Câmera Nativa.");
       return;
@@ -382,7 +424,8 @@ function CameraContent() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const compressed = await compressImageFile(file, 1600, 0.86);
+    // Aplica recorte proporcional 3:4 padronizado para focar a garupa
+    const compressed = await compressImageFile(file, 1600, 0.86, 3 / 4);
 
     if (previewRef.current.startsWith("blob:")) {
       URL.revokeObjectURL(previewRef.current);
@@ -683,6 +726,7 @@ function CameraContent() {
           {!camErr && (
             <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none p-6">
               <div
+                ref={reticleRef}
                 className={`relative w-[74%] max-w-[290px] aspect-[3/4] rounded-3xl border-2 transition-colors duration-300 shadow-[0_0_0_9999px_rgba(2,6,23,0.48)] ${
                   isLiveGood ? "border-emerald-400/50" : "border-white/25"
                 }`}

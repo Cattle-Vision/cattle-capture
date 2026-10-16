@@ -11,8 +11,16 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["192.168.1.5", "127.0.0.1", "localhost"],
   serverExternalPackages: ["sharp", "onnxruntime-node"],
   outputFileTracingIncludes: {
-    "/api/upload": ["./identifier.onnx"],
-    "/api/ai/score": ["./identifier.onnx"],
+    "/api/photos/[[...slug]]": ["./identifier.onnx"],
+    "/api/admin/[[...slug]]": ["./identifier.onnx"],
+    "/api/animals/[[...slug]]": ["./identifier.onnx"],
+  },
+  async rewrites() {
+    return [
+      { source: "/api/upload", destination: "/api/photos/upload" },
+      { source: "/api/ai/score", destination: "/api/photos/score" },
+      { source: "/api/export", destination: "/api/admin/export" },
+    ];
   },
   experimental: {
     serverActions: {

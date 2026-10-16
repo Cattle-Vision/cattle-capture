@@ -20,21 +20,40 @@ export interface CompressedImageResult {
 
 /**
  * Redimensiona e comprime qualquer arquivo de imagem no cliente para JPEG otimizado.
+ * Se cropAspect for fornecido (ex: 3 / 4 para garupa bovina), recorta centralizadamente a imagem.
  */
 export async function compressImageFile(
   fileOrBlob: File | Blob,
   maxDimension = 1600,
-  quality = 0.86
+  quality = 0.86,
+  cropAspect?: number
 ): Promise<CompressedImageResult> {
   const originalSize = fileOrBlob.size;
+
+  const computeCrop = (srcW: number, srcH: number) => {
+    if (!cropAspect || cropAspect <= 0) {
+      return { sx: 0, sy: 0, sw: srcW, sh: srcH };
+    }
+    const srcAspect = srcW / srcH;
+    if (srcAspect > cropAspect) {
+      const sw = srcH * cropAspect;
+      const sx = (srcW - sw) / 2;
+      return { sx, sy: 0, sw, sh: srcH };
+    } else {
+      const sh = srcW / cropAspect;
+      const sy = (srcH - sh) / 2;
+      return { sx: 0, sy, sw: srcW, sh };
+    }
+  };
 
   // Tenta decodificar via createImageBitmap (rápido e respeita orientação EXIF nos browsers modernos)
   if (typeof window !== "undefined" && "createImageBitmap" in window) {
     try {
       const bitmap = await createImageBitmap(fileOrBlob);
+      const crop = computeCrop(bitmap.width, bitmap.height);
       const { width, height } = calculateDimensions(
-        bitmap.width,
-        bitmap.height,
+        crop.sw,
+        crop.sh,
         maxDimension
       );
 
@@ -45,7 +64,7 @@ export async function compressImageFile(
       if (ctx) {
         ctx.fillStyle = "#000000";
         ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(bitmap, 0, 0, width, height);
+        ctx.drawImage(bitmap, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, width, height);
         bitmap.close?.();
 
         const outBlob = await canvasToJpegBlob(canvas, quality);
@@ -72,9 +91,13 @@ export async function compressImageFile(
 
     img.onload = async () => {
       URL.revokeObjectURL(objectUrl);
+      const nw = img.naturalWidth || img.width || 1280;
+      const nh = img.naturalHeight || img.height || 960;
+      const crop = computeCrop(nw, nh);
+
       const { width, height } = calculateDimensions(
-        img.naturalWidth || img.width || 1280,
-        img.naturalHeight || img.height || 960,
+        crop.sw,
+        crop.sh,
         maxDimension
       );
 
@@ -96,7 +119,7 @@ export async function compressImageFile(
 
       ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, 0, 0, width, height);
+      ctx.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, width, height);
 
       const outBlob = await canvasToJpegBlob(canvas, quality);
       if (!outBlob) {

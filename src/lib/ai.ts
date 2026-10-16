@@ -89,24 +89,23 @@ export async function initModel(): Promise<{ session: any; ort: any } | null> {
  * Calibra a confiança bruta de detecção da classe `Back` do YOLOv8 (0..1)
  * para a pontuação de qualidade do enquadramento apresentada ao operador (0% a 100%).
  */
+const INFERENCE_WIDTH = 512;
+const INFERENCE_HEIGHT = 512;
+
 export function calibrateYoloScore(rawConf: number): number {
-  if (rawConf <= 0.02) {
-    // Ruído residual ou imagem sem qualquer característica de garupa
-    return Math.round((rawConf / 0.02) * 5 * 10) / 10;
+  if (rawConf <= 0.05) {
+    return Math.round((rawConf / 0.05) * 5 * 10) / 10;
   }
-  if (rawConf < 0.15) {
-    // Detecção fraca / animal parcialmente fora de enquadramento
-    const p = (rawConf - 0.02) / 0.13;
-    return Math.round((5 + p * 30) * 10) / 10;
+  if (rawConf < 0.20) {
+    const p = (rawConf - 0.05) / 0.15;
+    return Math.round((5 + p * 25) * 10) / 10;
   }
   if (rawConf < 0.45) {
-    // Traseira identificada com confiança moderada
-    const p = (rawConf - 0.15) / 0.30;
-    return Math.round((35 + p * 35) * 10) / 10;
+    const p = (rawConf - 0.20) / 0.25;
+    return Math.round((30 + p * 35) * 10) / 10;
   }
-  // Excelente enquadramento com garupa e íscquios bem delimitados
   const p = Math.min(1.0, (rawConf - 0.45) / 0.45);
-  return Math.round((70 + p * 28) * 10) / 10;
+  return Math.round((65 + p * 33) * 10) / 10;
 }
 
 function buildFeedback(score: number): string {
@@ -121,7 +120,6 @@ function buildFeedback(score: number): string {
 
 /**
  * Fallback óptico equilibrado quando o runtime ONNX não está ativo.
- * Não utiliza métricas caóticas de textura/entropia para evitar falsos positivos altos.
  */
 async function fallbackVisionScore(imageBuffer: Buffer): Promise<RearDetectionResult> {
   try {
@@ -136,14 +134,11 @@ async function fallbackVisionScore(imageBuffer: Buffer): Promise<RearDetectionRe
     const meanLuma = 0.299 * r.mean + 0.587 * g.mean + 0.114 * b.mean;
     const avgStdDev = (r.stdev + g.stdev + b.stdev) / 3;
 
-    // Penaliza imagens muito escuras (< 35) ou estouradas (> 230)
     let exposureScore = 1.0;
     if (meanLuma < 35) exposureScore = Math.max(0.1, meanLuma / 35);
     else if (meanLuma > 230) exposureScore = Math.max(0.1, (255 - meanLuma) / 25);
 
-    // Contraste corporal equilibrado (animais saudáveis têm variação moderada)
     const contrastScore = Math.min(1.0, Math.max(0.2, avgStdDev / 45));
-
     const score = Math.round(Math.min(75, Math.max(10, contrastScore * exposureScore * 68)) * 10) / 10;
 
     return {
@@ -166,7 +161,7 @@ async function fallbackVisionScore(imageBuffer: Buffer): Promise<RearDetectionRe
 }
 
 /**
- * Executa a análise da imagem através do YOLOv8 ONNX com suporte adaptativo a resoluções (640x640 / 512x512).
+ * Executa a análise da imagem através do YOLO ONNX Dinâmico (NodeNext/ESM).
  */
 export async function analyzeRearImage(imageBuffer: Buffer): Promise<RearDetectionResult> {
   const loaded = await initModel();
@@ -176,74 +171,68 @@ export async function analyzeRearImage(imageBuffer: Buffer): Promise<RearDetecti
 
   const { session: sess, ort } = loaded;
 
-  const trySizes = [
-    { size: 640, defaultAnchors: 8400 },
-    { size: 512, defaultAnchors: 5376 },
-  ];
+  try {
+    // 1. Carregar e redimensionar para o tamanho ótimo de inferência (512x512)
+    const { data } = await sharp(imageBuffer)
+      .rotate()
+      .resize(INFERENCE_WIDTH, INFERENCE_HEIGHT, { fit: "fill" })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
 
-  for (const { size, defaultAnchors } of trySizes) {
-    try {
-      const { data } = await sharp(imageBuffer)
-        .rotate()
-        .resize(size, size, { fit: "fill" })
-        .removeAlpha()
-        .raw()
-        .toBuffer({ resolveWithObject: true });
+    // 2. Converter buffer HWC para Tensor BCHW (Normalização [0, 1])
+    const imageChannels = 3;
+    const float32Data = new Float32Array(INFERENCE_WIDTH * INFERENCE_HEIGHT * imageChannels);
 
-      const imageChannels = 3;
-      const float32Data = new Float32Array(size * size * imageChannels);
-
-      for (let c = 0; c < imageChannels; c++) {
-        for (let i = 0; i < size * size; i++) {
-          float32Data[c * size * size + i] = data[i * imageChannels + c] / 255.0;
-        }
+    for (let c = 0; c < imageChannels; c++) {
+      for (let i = 0; i < INFERENCE_WIDTH * INFERENCE_HEIGHT; i++) {
+        float32Data[c * INFERENCE_WIDTH * INFERENCE_HEIGHT + i] = data[i * imageChannels + c] / 255.0;
       }
-
-      const tensor = new ort.Tensor("float32", float32Data, [1, imageChannels, size, size]);
-      const inputName = sess.inputNames?.[0] || "images";
-      const feeds = { [inputName]: tensor };
-      const results = await sess.run(feeds);
-
-      const outputName = sess.outputNames?.[0] || Object.keys(results)[0];
-      const output = results[outputName];
-      const outData = output.data as Float32Array;
-
-      // Calcula o número real de âncoras a partir do tamanho do tensor de saída [1, 5, N]
-      const actualAnchors = Math.floor(outData.length / 5) || defaultAnchors;
-
-      let maxConf = 0;
-      let bestIdx = 0;
-
-      // Linha 4 guarda o score da classe 'Back'
-      for (let i = 0; i < actualAnchors; i++) {
-        const conf = outData[4 * actualAnchors + i];
-        if (conf > maxConf) {
-          maxConf = conf;
-          bestIdx = i;
-        }
-      }
-
-      const calibratedScore = calibrateYoloScore(maxConf);
-
-      const cx = (outData[0 * actualAnchors + bestIdx] || size / 2) / size;
-      const cy = (outData[1 * actualAnchors + bestIdx] || size / 2) / size;
-      const w = (outData[2 * actualAnchors + bestIdx] || size / 2) / size;
-      const h = (outData[3 * actualAnchors + bestIdx] || size / 2) / size;
-
-      return {
-        score: calibratedScore,
-        rawConfidence: maxConf,
-        lowQuality: calibratedScore < 40.0,
-        source: "yolo-onnx",
-        box: { cx, cy, w, h },
-        feedback: buildFeedback(calibratedScore),
-      };
-    } catch {
-      // Tenta a próxima resolução compatível
     }
-  }
 
-  return fallbackVisionScore(imageBuffer);
+    const inputTensor = new ort.Tensor("float32", float32Data, [1, imageChannels, INFERENCE_HEIGHT, INFERENCE_WIDTH]);
+    const inputName = sess.inputNames?.[0] || "images";
+    const feeds = { [inputName]: inputTensor };
+    const results = await sess.run(feeds);
+
+    const outputName = sess.outputNames?.[0] || Object.keys(results)[0];
+    const outputTensor = results[outputName];
+    const outputData = outputTensor.data as Float32Array;
+
+    // Número de âncoras dinâmico a partir do tensor [1, 5, numAnchors]
+    const numAnchors = outputTensor.dims?.[2] || Math.floor(outputData.length / 5);
+
+    let maxConf = 0;
+    let bestIdx = 0;
+
+    // Linha 4 guarda o score da classe 'Back'
+    for (let i = 0; i < numAnchors; i++) {
+      const score = outputData[4 * numAnchors + i];
+      if (score > maxConf) {
+        maxConf = score;
+        bestIdx = i;
+      }
+    }
+
+    const calibratedScore = calibrateYoloScore(maxConf);
+
+    const cx = (outputData[0 * numAnchors + bestIdx] || INFERENCE_WIDTH / 2) / INFERENCE_WIDTH;
+    const cy = (outputData[1 * numAnchors + bestIdx] || INFERENCE_HEIGHT / 2) / INFERENCE_HEIGHT;
+    const w = (outputData[2 * numAnchors + bestIdx] || INFERENCE_WIDTH / 2) / INFERENCE_WIDTH;
+    const h = (outputData[3 * numAnchors + bestIdx] || INFERENCE_HEIGHT / 2) / INFERENCE_HEIGHT;
+
+    return {
+      score: calibratedScore,
+      rawConfidence: maxConf,
+      lowQuality: calibratedScore < 40.0,
+      source: "yolo-onnx",
+      box: { cx, cy, w, h },
+      feedback: buildFeedback(calibratedScore),
+    };
+  } catch (err) {
+    console.error("[AI] Erro na inferência ONNX dinâmica, usando fallback:", err);
+    return fallbackVisionScore(imageBuffer);
+  }
 }
 
 export async function detectRearScore(imageBuffer: Buffer): Promise<number | null> {
