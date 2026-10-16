@@ -356,21 +356,21 @@ export default function AdminPage() {
     <div className="min-h-[100dvh] bg-theme-bg text-theme-primary flex flex-col pb-24 sm:pb-8">
       {/* Header */}
       <header className="glass-header sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
             <Link
               href="/dashboard"
-              className="p-2 rounded-xl text-theme-secondary hover:bg-theme-surface-2 transition shrink-0"
+              className="p-1.5 sm:p-2 rounded-xl text-theme-secondary hover:bg-theme-surface-2 transition shrink-0"
               aria-label="Voltar ao Dashboard"
             >
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="text-sm sm:text-base font-extrabold text-theme-primary truncate">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <h1 className="text-xs sm:text-base font-extrabold text-theme-primary truncate max-w-[125px] xs:max-w-[200px] sm:max-w-none">
                   Central Administrativa
                 </h1>
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                <span className="inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
                   <ShieldCheck className="w-3 h-3" />
                   ADMIN
                 </span>
@@ -381,19 +381,21 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <ThemeToggle />
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <ThemeToggle className="p-2 sm:p-2.5" />
             <button
               onClick={handleDownload}
               disabled={downloading || stats.totalPhotos === 0}
-              className="btn-primary py-2 px-3 sm:px-4 text-xs sm:text-sm shrink-0"
+              className="btn-primary py-2 px-2.5 sm:px-4 text-xs sm:text-sm shrink-0 flex items-center gap-1.5"
+              title="Exportar dataset completo em ZIP"
+              aria-label="Exportar dataset ZIP"
             >
               {downloading ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Download className="w-4 h-4" />
               )}
-              <span className="hidden xs:inline">
+              <span className="hidden sm:inline">
                 {downloading ? 'Empacotando…' : 'Exportar ZIP'}
               </span>
             </button>
@@ -472,31 +474,31 @@ export default function AdminPage() {
             </div>
 
             {/* Seletor de Abas */}
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-              <div className="inline-flex p-1 rounded-2xl bg-theme-surface-2 border border-theme">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+              <div className="grid grid-cols-2 p-1 rounded-2xl bg-theme-surface-2 border border-theme w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setActiveTab('dataset')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
+                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
                     activeTab === 'dataset'
                       ? 'bg-emerald-600 text-white shadow-sm'
                       : 'text-theme-secondary hover:text-theme-primary'
                   }`}
                 >
-                  <Database className="w-4 h-4" />
-                  <span>Rebanho & Dataset ({animals.length})</span>
+                  <Database className="w-4 h-4 shrink-0" />
+                  <span className="truncate">Rebanho ({animals.length})</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveTab('users')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
+                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
                     activeTab === 'users'
                       ? 'bg-emerald-600 text-white shadow-sm'
                       : 'text-theme-secondary hover:text-theme-primary'
                   }`}
                 >
-                  <Users className="w-4 h-4" />
-                  <span>Usuários & Admins ({users.length})</span>
+                  <Users className="w-4 h-4 shrink-0" />
+                  <span className="truncate">Usuários ({users.length})</span>
                 </button>
               </div>
 
@@ -505,7 +507,7 @@ export default function AdminPage() {
                   type="button"
                   onClick={handleRecalibrateScores}
                   disabled={recalibrating || stats.totalPhotos === 0}
-                  className="btn-secondary py-2.5 px-4 text-xs sm:text-sm flex items-center gap-2 border-emerald-500/30 hover:border-emerald-500/50"
+                  className="btn-secondary py-2.5 px-4 text-xs sm:text-sm flex items-center justify-center gap-2 border-emerald-500/30 hover:border-emerald-500/50 w-full sm:w-auto"
                   title="Recalcular scores de confiança da IA de todas as fotos no banco de dados"
                 >
                   {recalibrating ? (
@@ -523,7 +525,7 @@ export default function AdminPage() {
                 <button
                   type="button"
                   onClick={() => setShowAddUserModal(true)}
-                  className="btn-primary py-2.5 px-4 text-xs sm:text-sm"
+                  className="btn-primary py-2.5 px-4 text-xs sm:text-sm justify-center w-full sm:w-auto"
                 >
                   <UserPlus className="w-4 h-4" />
                   <span>Adicionar / Promover Admin</span>

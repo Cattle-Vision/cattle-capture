@@ -107,8 +107,15 @@ html.dark {
   box-sizing: border-box;
 }
 
+img, video, canvas, svg {
+  max-width: 100%;
+}
+
 html {
   height: 100%;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden !important;
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -124,8 +131,9 @@ body {
   min-height: 100%;
   width: 100%;
   max-width: 100vw;
+  position: relative;
   overscroll-behavior-y: none;
-  overflow-x: hidden;
+  overflow-x: hidden !important;
   letter-spacing: -0.012em;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -330,6 +338,10 @@ input.field-input.pr-11 {
 }
 
 .glass-header {
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
+  overflow-x: clip;
   background: var(--glass-bg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);

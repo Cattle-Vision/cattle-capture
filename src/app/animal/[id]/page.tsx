@@ -312,34 +312,36 @@ export default function AnimalProfilePage() {
 
       {/* Header */}
       <header className="glass-header sticky top-0 z-20">
-        <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className="max-w-4xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
             <button
               onClick={() => router.push("/dashboard")}
               aria-label="Voltar ao painel"
-              className="p-2 rounded-xl text-theme-secondary hover:bg-theme-surface-2 shrink-0"
+              className="p-1.5 sm:p-2 rounded-xl text-theme-secondary hover:bg-theme-surface-2 shrink-0"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="text-base font-extrabold text-theme-primary truncate">{label}</h1>
-                <span className="font-mono-tag text-xs font-bold px-2 py-0.5 rounded-md bg-slate-900 dark:bg-emerald-950 text-white dark:text-emerald-300">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <h1 className="text-sm sm:text-base font-extrabold text-theme-primary truncate max-w-[110px] xs:max-w-[180px] sm:max-w-xs">
+                  {label}
+                </h1>
+                <span className="font-mono-tag text-[10px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 rounded-md bg-slate-900 dark:bg-emerald-950 text-white dark:text-emerald-300 shrink-0">
                   {animal.tag}
                 </span>
               </div>
-              <p className="text-xs text-theme-secondary truncate">
+              <p className="text-[10px] sm:text-xs text-theme-secondary truncate max-w-[130px] sm:max-w-none">
                 {animal.breed} · {animal.sex} · {photoCount} {photoCount === 1 ? "foto" : "fotos"}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            <ThemeToggle />
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            <ThemeToggle className="p-2 sm:p-2.5" />
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="p-2.5 rounded-xl text-theme-secondary hover:bg-theme-surface-2"
+              className="p-2 sm:p-2.5 rounded-xl text-theme-secondary hover:bg-theme-surface-2"
               title="Editar dados do animal"
             >
               <Pencil className="w-4 h-4" />
@@ -347,7 +349,7 @@ export default function AnimalProfilePage() {
             <button
               type="button"
               onClick={handleDeleteAnimal}
-              className="p-2.5 rounded-xl text-theme-secondary hover:text-red-500 hover:bg-red-500/10"
+              className="p-2 sm:p-2.5 rounded-xl text-theme-secondary hover:text-red-500 hover:bg-red-500/10"
               title="Excluir animal"
             >
               <Trash2 className="w-4 h-4" />

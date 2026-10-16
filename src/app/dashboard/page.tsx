@@ -217,32 +217,34 @@ export default function DashboardPage() {
     <div className="min-h-[100dvh] flex flex-col bg-theme-bg text-theme-primary">
       {/* Header Glassmorphic */}
       <header className="glass-header sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white shadow-xs shrink-0">
-              <span className="text-lg">🐄</span>
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white shadow-xs shrink-0">
+              <span className="text-base sm:text-lg">🐄</span>
             </div>
             <div className="min-w-0">
               <h1 className="text-sm sm:text-base font-extrabold text-theme-primary truncate">
                 Cattle<span className="text-emerald-600 dark:text-emerald-400">Capture</span>
               </h1>
-              <p className="text-[11px] font-medium text-theme-secondary truncate">
+              <p className="text-[10px] sm:text-[11px] font-medium text-theme-secondary truncate max-w-[120px] xs:max-w-[180px] sm:max-w-none">
                 {loading
-                  ? "Carregando rebanho…"
-                  : `${stats.totalAnimals} animais · ${stats.totalPhotos} capturas`}
+                  ? "Carregando…"
+                  : `${stats.totalAnimals} animais · ${stats.totalPhotos} fotos`}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <ThemeToggle />
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <ThemeToggle className="p-2 sm:p-2.5" />
             {isAdmin && (
               <Link
                 href="/admin"
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition"
+                className="inline-flex items-center gap-1.5 p-2 sm:px-3 sm:py-2 text-xs font-bold rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition shrink-0"
+                title="Central Administrativa"
+                aria-label="Central Administrativa"
               >
                 <ShieldCheck className="w-4 h-4" />
-                <span className="hidden xs:inline">Admin</span>
+                <span className="hidden sm:inline">Admin</span>
               </Link>
             )}
             <Link
@@ -259,10 +261,10 @@ export default function DashboardPage() {
               <Plus className="w-4 h-4" />
               Novo Animal
             </Link>
-            <form action={logoutAction}>
+            <form action={logoutAction} className="shrink-0">
               <button
                 type="submit"
-                className="p-2.5 rounded-xl text-theme-secondary hover:text-red-500 hover:bg-red-500/10 transition"
+                className="p-2 sm:p-2.5 rounded-xl text-theme-secondary hover:text-red-500 hover:bg-red-500/10 transition"
                 title="Sair da conta"
                 aria-label="Sair da conta"
               >

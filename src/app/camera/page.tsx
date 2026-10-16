@@ -32,7 +32,9 @@ import {
   WifiOff,
   Loader2,
   Activity,
+  SwitchCamera,
 } from "lucide-react";
+import { useToast } from "@/components/ui/Toast";
 import { compressImageFile, formatBytes } from "@/lib/image-client";
 import {
   computeInstantVideoScore,
@@ -116,6 +118,132 @@ function CameraContent() {
   const [savedOffline, setSavedOffline] = useState(false);
   const [uploadErr, setUploadErr] = useState("");
 
+  // Estados de Gerenciamento de Câmera / Lentes / Dispositivos
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
+  const [switchingCamera, setSwitchingCamera] = useState(false);
+  const [activeDeviceLabel, setActiveDeviceLabel] = useState("");
+  const { toast } = useToast();
+
+  const refreshVideoDevices = async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((d) => d.kind === "videoinput");
+      setVideoDevices(videoInputs);
+      return videoInputs;
+    } catch {
+      return [];
+    }
+  };
+
+  const startCamera = async (targetDeviceId?: string, targetFacing?: "environment" | "user") => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCamErr("Câmera ao vivo indisponível neste navegador. Use a Câmera do Aparelho ou Galeria abaixo.");
+      return;
+    }
+
+    setVidReady(false);
+    setCamErr("");
+    setSwitchingCamera(true);
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+
+    const desiredFacing = targetFacing ?? facingMode;
+    const desiredDeviceId = targetDeviceId ?? selectedDeviceId;
+
+    const attempts: MediaStreamConstraints[] = [];
+
+    if (desiredDeviceId) {
+      attempts.push({
+        video: {
+          deviceId: { exact: desiredDeviceId },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
+      attempts.push({
+        video: { deviceId: { exact: desiredDeviceId } },
+        audio: false,
+      });
+    }
+
+    attempts.push(
+      {
+        video: {
+          facingMode: { ideal: desiredFacing },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      },
+      { video: { facingMode: desiredFacing }, audio: false },
+      { video: true, audio: false }
+    );
+
+    let successStream: MediaStream | null = null;
+    for (const c of attempts) {
+      try {
+        successStream = await navigator.mediaDevices.getUserMedia(c);
+        break;
+      } catch {
+        // tenta próxima constraint
+      }
+    }
+
+    if (successStream) {
+      streamRef.current = successStream;
+      const v = videoRef.current;
+      if (v) {
+        v.srcObject = successStream;
+        v.muted = true;
+        v.playsInline = true;
+        await v.play().catch(() => {});
+      }
+      setVidReady(true);
+      setCamErr("");
+
+      const track = successStream.getVideoTracks()[0];
+      const settings = track?.getSettings?.();
+      if (settings?.deviceId) {
+        setSelectedDeviceId(settings.deviceId);
+      }
+      if (track?.label) {
+        setActiveDeviceLabel(track.label);
+      }
+
+      await refreshVideoDevices();
+    } else {
+      setCamErr("Não foi possível acessar a câmera solicitada. Tente outra lente ou dispositivo.");
+    }
+
+    setSwitchingCamera(false);
+  };
+
+  const handleSwitchCamera = async () => {
+    if (switchingCamera) return;
+
+    if (videoDevices.length > 1) {
+      const currentIndex = videoDevices.findIndex((d) => d.deviceId === selectedDeviceId);
+      const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % videoDevices.length : 0;
+      const nextDevice = videoDevices[nextIndex];
+      setSelectedDeviceId(nextDevice.deviceId);
+      await startCamera(nextDevice.deviceId);
+      toast(nextDevice.label ? `Câmera: ${nextDevice.label}` : `Lente ${nextIndex + 1} ativada`, "info");
+      return;
+    }
+
+    const nextFacing = facingMode === "environment" ? "user" : "environment";
+    setFacingMode(nextFacing);
+    await startCamera(undefined, nextFacing);
+    toast(nextFacing === "environment" ? "Câmera traseira ativada" : "Câmera frontal ativada", "info");
+  };
+
   useEffect(() => {
     if (!animalId || animalName) return;
     fetch(`/api/animals/${animalId}`)
@@ -133,65 +261,9 @@ function CameraContent() {
       return;
     }
 
-    let cancelled = false;
-
-    (async () => {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setCamErr(
-          "Câmera ao vivo indisponível neste navegador. Use a Câmera do Aparelho ou Galeria abaixo."
-        );
-        return;
-      }
-
-      const attempts: MediaStreamConstraints[] = [
-        {
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: false,
-        },
-        { video: { facingMode: "environment" }, audio: false },
-        { video: true, audio: false },
-      ];
-
-      for (const c of attempts) {
-        try {
-          const s = await navigator.mediaDevices.getUserMedia(c);
-          if (cancelled) {
-            s.getTracks().forEach((t) => t.stop());
-            return;
-          }
-          streamRef.current = s;
-          const v = videoRef.current;
-          if (!v) return;
-          v.srcObject = s;
-          v.muted = true;
-          v.playsInline = true;
-          await v.play().catch(() => {});
-          setCamErr("");
-          return;
-        } catch {
-          // tenta próxima constraint
-        }
-      }
-      if (!cancelled) {
-        setCamErr(
-          "Câmera ao vivo bloqueada ou indisponível. Use os botões de Câmera Nativa ou Galeria."
-        );
-      }
-    })();
-
-    const timer = setTimeout(() => {
-      if (!cancelled && !videoRef.current?.videoWidth) {
-        setCamErr((e) => e || "Câmera demorou a iniciar. Use a Câmera Nativa ou Galeria.");
-      }
-    }, 5000);
+    startCamera().catch(() => {});
 
     return () => {
-      cancelled = true;
-      clearTimeout(timer);
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
@@ -552,7 +624,7 @@ function CameraContent() {
 
       {/* Header Superior HUD */}
       <div
-        className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3"
+        className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 gap-2"
         style={{
           paddingTop: "max(0.75rem, env(safe-area-inset-top))",
           background: "linear-gradient(to bottom, rgba(2,6,23,0.85) 0%, transparent 100%)",
@@ -561,29 +633,48 @@ function CameraContent() {
       >
         <button
           onClick={() => router.back()}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-md text-white text-xs font-bold"
+          className="flex items-center gap-1.5 p-2 sm:px-3.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-md text-white text-xs font-bold shrink-0"
+          title="Voltar"
+          aria-label="Voltar"
         >
           <ArrowLeft className="w-4 h-4" />
-          Voltar
+          <span className="hidden xs:inline">Voltar</span>
         </button>
 
-        <div className="text-center">
-          <p className="text-white font-extrabold text-sm truncate max-w-[180px]">
+        <div className="text-center min-w-0 px-1">
+          <p className="text-white font-extrabold text-xs sm:text-sm truncate max-w-[130px] xs:max-w-[170px] sm:max-w-[220px]">
             {animalName || "Captura Guiada"}
           </p>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">
+          <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-emerald-400 truncate">
             Vista Posterior · ICC
           </p>
         </div>
 
-        <button
-          onClick={() => galleryRef.current?.click()}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-md text-white text-xs font-bold"
-          title="Escolher da galeria"
-        >
-          <Upload className="w-3.5 h-3.5" />
-          Galeria
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={handleSwitchCamera}
+            disabled={switchingCamera}
+            className="flex items-center gap-1 p-2 sm:px-3 sm:py-2 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-md text-white text-xs font-bold"
+            title="Alternar entre câmeras ou inverter direção"
+            aria-label="Alternar câmera"
+          >
+            <SwitchCamera className={`w-4 h-4 ${switchingCamera ? "animate-spin text-emerald-400" : ""}`} />
+            <span className="hidden sm:inline">
+              {videoDevices.length > 1 ? `Lentes (${videoDevices.length})` : "Inverter"}
+            </span>
+          </button>
+
+          <button
+            onClick={() => galleryRef.current?.click()}
+            className="flex items-center gap-1.5 p-2 sm:px-3.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/20 backdrop-blur-md text-white text-xs font-bold shrink-0"
+            title="Escolher da galeria"
+            aria-label="Escolher da galeria"
+          >
+            <Upload className="w-4 h-4" />
+            <span className="hidden xs:inline">Galeria</span>
+          </button>
+        </div>
       </div>
 
       {/* ── MODO VIEWFINDER COM SCORE EM TEMPO REAL ── */}
@@ -702,14 +793,19 @@ function CameraContent() {
             }}
           >
             <button
-              onClick={() => nativeCamRef.current?.click()}
-              className="flex flex-col items-center gap-1 text-white/80 hover:text-white"
-              aria-label="Câmera nativa"
+              type="button"
+              onClick={handleSwitchCamera}
+              disabled={switchingCamera}
+              className="flex flex-col items-center gap-1 text-white/80 hover:text-white transition active:scale-95 disabled:opacity-50"
+              title="Alternar entre câmeras ou inverter direção"
+              aria-label="Trocar de câmera"
             >
-              <div className="w-12 h-12 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center">
-                <Camera className="w-5 h-5" />
+              <div className="w-12 h-12 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/10">
+                <SwitchCamera className={`w-5 h-5 ${switchingCamera ? "animate-spin text-emerald-400" : ""}`} />
               </div>
-              <span className="text-[10px] font-bold">Nativa</span>
+              <span className="text-[10px] font-bold">
+                {videoDevices.length > 1 ? `Trocar (${videoDevices.length})` : "Inverter"}
+              </span>
             </button>
 
             <button

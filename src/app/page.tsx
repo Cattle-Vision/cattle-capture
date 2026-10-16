@@ -29,13 +29,13 @@ export default async function LandingPage() {
     <div className="min-h-[100dvh] flex flex-col bg-theme-bg text-theme-primary selection:bg-emerald-500 selection:text-white">
       {/* Header Glassmorphic */}
       <header className="glass-header sticky top-0 z-30">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white shadow-sm">
-              <span className="text-lg">🐄</span>
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white shadow-xs shrink-0">
+              <span className="text-base sm:text-lg">🐄</span>
             </div>
-            <div>
-              <span className="font-extrabold text-base tracking-tight text-theme-primary">
+            <div className="min-w-0">
+              <span className="font-extrabold text-sm sm:text-base tracking-tight text-theme-primary truncate">
                 Cattle<span className="text-emerald-600 dark:text-emerald-400">Capture</span>
               </span>
               <span className="hidden sm:inline-block ml-2 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
@@ -44,14 +44,14 @@ export default async function LandingPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            <Link href="/login" className="btn-ghost text-xs sm:text-sm px-3 sm:px-4 py-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <ThemeToggle className="p-2 sm:p-2.5" />
+            <Link href="/login" className="btn-ghost text-xs sm:text-sm px-2.5 sm:px-4 py-1.5 sm:py-2">
               Entrar
             </Link>
-            <Link href="/register" className="btn-primary text-xs sm:text-sm px-3.5 sm:px-4 py-2.5">
+            <Link href="/register" className="btn-primary text-xs sm:text-sm px-3 sm:px-4 py-2 sm:py-2.5">
               <span>Criar conta</span>
-              <ArrowRight className="w-4 h-4 hidden xs:inline" />
+              <ArrowRight className="w-4 h-4 hidden sm:inline" />
             </Link>
           </div>
         </div>

@@ -67,25 +67,25 @@ export default function IdentifyPage() {
   return (
     <div className="min-h-[100dvh] flex flex-col bg-theme-bg text-theme-primary pb-24 sm:pb-8">
       <header className="glass-header sticky top-0 z-20">
-        <div className="max-w-xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+        <div className="max-w-xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={() => router.push("/dashboard")}
               aria-label="Voltar"
-              className="p-2 rounded-xl text-theme-secondary hover:bg-theme-surface-2"
+              className="p-1.5 sm:p-2 rounded-xl text-theme-secondary hover:bg-theme-surface-2 shrink-0"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <div>
-              <h1 className="text-base font-extrabold text-theme-primary">
+            <div className="min-w-0">
+              <h1 className="text-sm sm:text-base font-extrabold text-theme-primary truncate">
                 Identificar por Brinco
               </h1>
-              <p className="text-xs text-theme-secondary">
+              <p className="text-[10px] sm:text-xs text-theme-secondary truncate">
                 Busca rápida ou cadastro automático
               </p>
             </div>
           </div>
-          <ThemeToggle />
+          <ThemeToggle className="p-2 sm:p-2.5 shrink-0" />
         </div>
       </header>
 

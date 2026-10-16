@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Analytics } from "@vercel/analytics/react";
 import { Providers } from "@/components/Providers";
 import { SyncManager } from "./SyncManager";
 import { ToastProvider } from "@/components/ui/Toast";
@@ -63,6 +64,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <ToastProvider>
             <SyncManager />
             {children}
+            <Analytics />
           </ToastProvider>
         </Providers>
       </body>
