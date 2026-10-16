@@ -257,7 +257,7 @@ export default function DashboardPage() {
               <h1 className="text-sm sm:text-base font-extrabold text-theme-primary truncate">
                 Cattle<span className="text-emerald-600 dark:text-emerald-400">Capture</span>
               </h1>
-              <p className="text-[10px] sm:text-[11px] font-medium text-theme-secondary truncate max-w-[120px] xs:max-w-[180px] sm:max-w-none">
+              <p className="text-[10px] sm:text-[11px] font-medium text-theme-secondary truncate hidden xs:block">
                 {loading
                   ? "Carregando…"
                   : `${stats.totalAnimals} animais · ${stats.totalPhotos} fotos`}
@@ -265,17 +265,17 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <ThemeToggle className="p-2 sm:p-2.5" />
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            <ThemeToggle className="p-1.5 sm:p-2.5" />
             {isAdmin && (
               <Link
                 href="/admin"
-                className="inline-flex items-center gap-1.5 p-2 sm:px-3 sm:py-2 text-xs font-bold rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition shrink-0"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition shrink-0"
                 title="Central Administrativa"
                 aria-label="Central Administrativa"
               >
                 <ShieldCheck className="w-4 h-4" />
-                <span className="hidden sm:inline">Admin</span>
+                <span>Admin</span>
               </Link>
             )}
             <Link
@@ -295,7 +295,7 @@ export default function DashboardPage() {
             <form action={logoutAction} className="shrink-0">
               <button
                 type="submit"
-                className="p-2 sm:p-2.5 rounded-xl text-theme-secondary hover:text-red-500 hover:bg-red-500/10 transition"
+                className="p-1.5 sm:p-2.5 rounded-xl text-theme-secondary hover:text-red-500 hover:bg-red-500/10 transition"
                 title="Sair da conta"
                 aria-label="Sair da conta"
               >

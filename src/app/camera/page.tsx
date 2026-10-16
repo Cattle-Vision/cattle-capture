@@ -786,12 +786,13 @@ function CameraContent() {
 
           {/* Controles de Disparo */}
           <div
-            className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-around py-7 px-6"
+            className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-around py-5 px-3 sm:px-6"
             style={{
-              paddingBottom: "max(1.75rem, env(safe-area-inset-bottom))",
-              background: "linear-gradient(to top, rgba(2,6,23,0.9) 0%, transparent 100%)",
+              paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
+              background: "linear-gradient(to top, rgba(2,6,23,0.92) 0%, transparent 100%)",
             }}
           >
+            {/* 1. Trocar Câmera / Lentes */}
             <button
               type="button"
               onClick={handleSwitchCamera}
@@ -800,7 +801,7 @@ function CameraContent() {
               title="Alternar entre câmeras ou inverter direção"
               aria-label="Trocar de câmera"
             >
-              <div className="w-12 h-12 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/10">
+              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/10">
                 <SwitchCamera className={`w-5 h-5 ${switchingCamera ? "animate-spin text-emerald-400" : ""}`} />
               </div>
               <span className="text-[10px] font-bold">
@@ -808,23 +809,51 @@ function CameraContent() {
               </span>
             </button>
 
+            {/* 2. Câmera Nativa do Aparelho (App oficial do celular) */}
             <button
+              type="button"
+              onClick={() => {
+                if (nativeCamRef.current) {
+                  nativeCamRef.current.value = "";
+                  nativeCamRef.current.click();
+                }
+              }}
+              className="flex flex-col items-center gap-1 text-white/80 hover:text-white transition active:scale-95"
+              title="Abrir aplicativo de Câmera Nativa do dispositivo"
+              aria-label="Câmera nativa"
+            >
+              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/10">
+                <Camera className="w-5 h-5 text-emerald-300" />
+              </div>
+              <span className="text-[10px] font-bold">Nativa</span>
+            </button>
+
+            {/* 3. Disparo em Tempo Real (Frame do visor com Score IA) */}
+            <button
+              type="button"
               onClick={handleCapture}
               disabled={!vidReady || !!camErr}
-              aria-label="Capturar foto"
-              className="w-20 h-20 rounded-full border-4 border-emerald-400 flex items-center justify-center active:scale-90 disabled:opacity-35 transition-transform bg-emerald-500/20 shadow-lg shadow-emerald-500/20"
+              aria-label="Capturar foto agora"
+              className="w-18 h-18 sm:w-20 sm:h-20 rounded-full border-4 border-emerald-400 flex items-center justify-center active:scale-90 disabled:opacity-35 transition-transform bg-emerald-500/20 shadow-lg shadow-emerald-500/20"
             >
-              <div className="w-15 h-15 rounded-full bg-white flex items-center justify-center">
-                <Camera className="w-7 h-7 text-slate-900" />
+              <div className="w-13 h-13 sm:w-15 sm:h-15 rounded-full bg-white flex items-center justify-center">
+                <Camera className="w-6 h-6 sm:w-7 sm:h-7 text-slate-900" />
               </div>
             </button>
 
+            {/* 4. Galeria de Fotos */}
             <button
-              onClick={() => galleryRef.current?.click()}
-              className="flex flex-col items-center gap-1 text-white/80 hover:text-white"
+              type="button"
+              onClick={() => {
+                if (galleryRef.current) {
+                  galleryRef.current.value = "";
+                  galleryRef.current.click();
+                }
+              }}
+              className="flex flex-col items-center gap-1 text-white/80 hover:text-white transition active:scale-95"
               aria-label="Enviar da galeria"
             >
-              <div className="w-12 h-12 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center">
+              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/10">
                 <ImagePlus className="w-5 h-5" />
               </div>
               <span className="text-[10px] font-bold">Galeria</span>

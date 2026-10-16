@@ -382,7 +382,7 @@ export default function AdminPage() {
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <ThemeToggle className="p-2 sm:p-2.5" />
+            <ThemeToggle className="p-1.5 sm:p-2.5" />
             <button
               onClick={handleDownload}
               disabled={downloading || stats.totalPhotos === 0}
