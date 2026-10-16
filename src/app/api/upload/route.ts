@@ -84,8 +84,13 @@ export async function POST(request: Request) {
       rawBuffer
     );
 
-    // Avalia score de qualidade com o modelo ONNX (se disponível no ambiente)
-    const aiScore = await inferScoreWithTimeout(optimizedBuffer);
+    // Se o cliente já calculou o score no preview antes do upload, reutiliza; caso contrário, infere agora
+    const preScoreRaw = formData.get("preScore");
+    const parsedPreScore =
+      preScoreRaw !== null && preScoreRaw !== "" ? Number(preScoreRaw) : NaN;
+    const aiScore = Number.isFinite(parsedPreScore)
+      ? Math.round(parsedPreScore * 10) / 10
+      : await inferScoreWithTimeout(optimizedBuffer);
 
     const photo = await prisma.photo.create({
       data: {

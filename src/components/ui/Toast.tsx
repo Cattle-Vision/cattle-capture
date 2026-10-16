@@ -1,18 +1,7 @@
 'use client';
 
 /**
- * Sistema de Toast não-bloqueante para o cattle-capture.
- *
- * Substitui window.alert() e window.confirm() em toda a aplicação.
- * Funciona via Context + Portal — pode ser invocado de qualquer componente.
- *
- * Uso:
- *   const { toast } = useToast();
- *   toast('Foto apagada!', 'success');
- *   toast('Erro ao apagar', 'error');
- *
- *   // Para confirmação (retorna Promise<boolean>):
- *   const ok = await toast.confirm('Tem certeza que quer apagar esta foto?');
+ * Sistema de Toast e Confirmação compatível com Tema Claro/Escuro (`src/components/ui/Toast.tsx`).
  */
 
 import {
@@ -20,7 +9,6 @@ import {
   useContext,
   useState,
   useCallback,
-  useRef,
   ReactNode,
 } from 'react';
 
@@ -38,9 +26,7 @@ interface ConfirmState {
 }
 
 interface ToastContextValue {
-  /** Exibe um toast efêmero (auto-fecha em 3s) */
   toast: (message: string, type?: ToastType) => void;
-  /** Exibe um diálogo de confirmação não-bloqueante. Retorna Promise<boolean>. */
   confirm: (message: string) => Promise<boolean>;
 }
 
@@ -54,15 +40,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const toast = useCallback((message: string, type: ToastType = 'info') => {
     const id = ++_id;
-    setToasts(prev => [...prev, { id, message, type }]);
-    // Remove automaticamente após 3.5s
+    setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
+      setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3500);
   }, []);
 
   const confirm = useCallback((message: string): Promise<boolean> => {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       setConfirmState({ message, resolve });
     });
   }, []);
@@ -75,7 +60,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const typeStyles: Record<ToastType, string> = {
     success: 'bg-emerald-600 border-emerald-500',
     error: 'bg-red-600 border-red-500',
-    info: 'bg-zinc-800 border-zinc-700',
+    info: 'bg-slate-800 border-slate-700',
   };
 
   const typeIcons: Record<ToastType, string> = {
@@ -88,18 +73,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={{ toast, confirm }}>
       {children}
 
-      {/* Toast Stack — canto inferior esquerdo, safe-area aware */}
+      {/* Toast Stack */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-50 flex flex-col gap-2 p-4 pointer-events-none"
+        className="fixed bottom-16 sm:bottom-0 left-0 right-0 z-50 flex flex-col gap-2 p-4 pointer-events-none"
         style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
       >
-        {toasts.map(t => (
+        {toasts.map((t) => (
           <div
             key={t.id}
             className={`
-              flex items-center gap-3 px-4 py-3 rounded-xl border text-white text-sm font-medium
+              flex items-center gap-3 px-4 py-3 rounded-xl border text-white text-sm font-semibold
               shadow-xl backdrop-blur-sm pointer-events-auto max-w-sm w-full
-              animate-[slideUp_0.25s_ease-out]
+              animate-slide-up
               ${typeStyles[t.type]}
             `}
           >
@@ -109,26 +94,26 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         ))}
       </div>
 
-      {/* Modal de Confirmação — substitui window.confirm() */}
+      {/* Modal de Confirmação adaptável ao Tema Claro/Escuro */}
       {confirmState && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div className="card shadow-2xl w-full max-w-sm overflow-hidden animate-scale-in">
             <div className="p-6">
-              <p className="text-zinc-800 text-base font-medium leading-relaxed">
+              <p className="text-theme-primary text-base font-bold leading-relaxed">
                 {confirmState.message}
               </p>
             </div>
-            <div className="flex border-t border-zinc-100">
+            <div className="flex border-t border-theme">
               <button
                 onClick={() => handleConfirm(false)}
-                className="flex-1 py-4 text-sm font-medium text-zinc-500 hover:bg-zinc-50 active:bg-zinc-100 transition"
+                className="flex-1 py-4 text-sm font-bold text-theme-secondary hover:bg-theme-surface-2 transition"
               >
                 Cancelar
               </button>
-              <div className="w-px bg-zinc-100" />
+              <div className="w-px bg-theme-surface-3" />
               <button
                 onClick={() => handleConfirm(true)}
-                className="flex-1 py-4 text-sm font-medium text-red-600 hover:bg-red-50 active:bg-red-100 transition"
+                className="flex-1 py-4 text-sm font-bold text-red-500 hover:bg-red-500/10 transition"
               >
                 Confirmar
               </button>

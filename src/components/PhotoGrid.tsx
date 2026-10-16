@@ -6,8 +6,8 @@
  * Responsabilidades:
  * - Renderizar fotos usando `getPhotoUrl(photo.id)` (`/api/photos/[id]`), garantindo compatibilidade
  *   total com Vercel Blob Privado, Público e Data URI no PostgreSQL.
- * - Exibir badge de Score IA (confiança do modelo YOLO) e data de captura.
- * - Suportar abertura do Lightbox e exclusão individual com confirmação.
+ * - Exibir badge de Score IA (confiança do modelo YOLO/Visão) e data de captura.
+ * - Suportar abertura do Lightbox, exclusão individual com confirmação e Tema Claro/Escuro.
  */
 
 import { useState } from 'react';
@@ -45,7 +45,7 @@ function PhotoCard({
     : null;
 
   const hasScore = typeof photo.score === 'number' && !Number.isNaN(photo.score);
-  const isHighScore = hasScore && (photo.score as number) >= 40;
+  const isHighScore = hasScore && (photo.score as number) >= 45;
 
   return (
     <div
@@ -59,16 +59,18 @@ function PhotoCard({
         }
       }}
       aria-label={`Ver foto ${index + 1}`}
-      className="relative aspect-[3/4] rounded-2xl overflow-hidden cursor-pointer select-none group active:scale-[0.99] transition-all bg-slate-100 border border-slate-200/80 shadow-xs hover:shadow-md hover:border-emerald-300"
+      className="relative aspect-[3/4] rounded-2xl overflow-hidden cursor-pointer select-none group active:scale-[0.99] transition-all bg-theme-surface-2 border border-theme shadow-xs hover:shadow-md hover:border-emerald-500/60"
     >
       {/* Skeleton enquanto carrega */}
       {!loaded && !errored && <div className="absolute inset-0 skeleton" />}
 
       {/* Estado de erro caso o arquivo não exista */}
       {errored && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100 text-slate-400 gap-1.5 p-3 text-center">
-          <ImageOff className="w-7 h-7 text-slate-300" />
-          <span className="text-xs font-medium text-slate-400">Imagem indisponível</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-theme-surface-2 text-theme-muted gap-1.5 p-3 text-center">
+          <ImageOff className="w-7 h-7 text-theme-muted" />
+          <span className="text-xs font-medium text-theme-muted">
+            Imagem indisponível
+          </span>
         </div>
       )}
 
@@ -87,19 +89,19 @@ function PhotoCard({
       )}
 
       {/* Gradiente inferior para legibilidade dos metadados */}
-      <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/75 via-black/30 to-transparent pointer-events-none" />
+      <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/80 via-black/35 to-transparent pointer-events-none" />
 
       {/* Badge de Score IA no topo esquerdo */}
       {hasScore && (
         <div
-          className={`absolute top-2.5 left-2.5 z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold backdrop-blur-md shadow-xs pointer-events-none ${
+          className={`absolute top-2.5 left-2.5 z-10 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold backdrop-blur-md shadow-xs pointer-events-none ${
             isHighScore
               ? 'bg-emerald-500/90 text-white'
               : 'bg-amber-500/90 text-white'
           }`}
         >
           <Sparkles className="w-3 h-3" />
-          IA {Math.round(photo.score as number)}%
+          Score {Math.round(photo.score as number)}%
         </div>
       )}
 
@@ -139,17 +141,24 @@ function PhotoCard({
   );
 }
 
-export default function PhotoGrid({ photos, onDelete, onSelect }: PhotoGridProps) {
+export default function PhotoGrid({
+  photos,
+  onDelete,
+  onSelect,
+}: PhotoGridProps) {
   if (photos.length === 0) {
     return (
-      <div className="col-span-full py-16 px-4 text-center flex flex-col items-center gap-3 bg-white border-2 border-dashed border-slate-200 rounded-2xl">
-        <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-2xl">
+      <div className="col-span-full py-16 px-4 text-center flex flex-col items-center gap-3 bg-theme-surface border-2 border-dashed border-theme rounded-2xl">
+        <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-2xl">
           📷
         </div>
         <div>
-          <p className="text-sm font-bold text-slate-800">Nenhuma foto registrada para este animal</p>
-          <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-            Utilize a câmera guiada ou envie uma imagem da galeria do seu dispositivo para iniciar o dataset.
+          <p className="text-sm font-bold text-theme-primary">
+            Nenhuma foto registrada para este animal
+          </p>
+          <p className="text-xs text-theme-secondary mt-1 max-w-xs mx-auto">
+            Utilize a câmera guiada com IA em tempo real ou envie uma imagem da
+            galeria do seu dispositivo.
           </p>
         </div>
       </div>
@@ -157,7 +166,7 @@ export default function PhotoGrid({ photos, onDelete, onSelect }: PhotoGridProps
   }
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5 sm:gap-4">
       {photos.map((photo, index) => (
         <PhotoCard
           key={photo.id}

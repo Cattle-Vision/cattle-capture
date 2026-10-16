@@ -2,12 +2,14 @@
 
 /**
  * Página de Cadastro de Operador (`src/app/register/page.tsx`).
+ * Suporte completo a Tema Claro/Escuro (`ThemeToggle`).
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2, ArrowLeft, User, Mail, Lock, Eye, EyeOff, Sparkles } from "lucide-react";
 import { signIn } from "next-auth/react";
+import ThemeToggle from "@/components/ThemeToggle";
 
 export default function RegisterPage() {
   const [name, setName] = useState("");
@@ -57,9 +59,9 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-[100dvh] flex bg-slate-50">
+    <div className="min-h-[100dvh] flex bg-theme-bg text-theme-primary">
       {/* Painel lateral */}
-      <div className="hidden lg:flex w-[420px] xl:w-[460px] flex-col justify-between p-10 bg-slate-900 text-white relative overflow-hidden">
+      <div className="hidden lg:flex w-[420px] xl:w-[460px] flex-col justify-between p-10 bg-slate-900 text-white relative overflow-hidden border-r border-slate-800">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute -top-24 -left-24 w-80 h-80 rounded-full bg-emerald-500/20 blur-3xl"
@@ -91,36 +93,39 @@ export default function RegisterPage() {
         </div>
 
         <p className="relative z-10 text-xs text-slate-400">
-          CattleCapture v2.5 · Sincronização Cloud & Offline
+          CattleCapture v3.0 · Sincronização Cloud & Offline PWA
         </p>
       </div>
 
       {/* Formulário */}
-      <div className="flex-1 flex flex-col justify-center items-center p-6 sm:p-10">
+      <div className="flex-1 flex flex-col justify-center items-center p-5 sm:p-10">
         <div className="w-full max-w-md">
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center justify-between mb-6">
             <Link
               href="/"
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-900"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-theme-secondary hover:text-theme-primary"
             >
               <ArrowLeft className="w-4 h-4" />
               Início
             </Link>
-            <div className="lg:hidden flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-emerald-600 flex items-center justify-center text-sm text-white">
-                🐄
+            <div className="flex items-center gap-2.5">
+              <div className="lg:hidden flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-emerald-600 flex items-center justify-center text-sm text-white">
+                  🐄
+                </div>
+                <span className="font-extrabold text-sm text-theme-primary">
+                  Cattle<span className="text-emerald-600 dark:text-emerald-400">Capture</span>
+                </span>
               </div>
-              <span className="font-extrabold text-sm text-slate-900">
-                Cattle<span className="text-emerald-600">Capture</span>
-              </span>
+              <ThemeToggle />
             </div>
           </div>
 
           <div className="card p-6 sm:p-8">
-            <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight mb-1">
+            <h2 className="text-2xl font-extrabold text-theme-primary tracking-tight mb-1">
               Criar conta de operador
             </h2>
-            <p className="text-sm text-slate-500 mb-6">
+            <p className="text-sm text-theme-secondary mb-6">
               Preencha seus dados para iniciar a coleta de imagens.
             </p>
 
@@ -137,7 +142,7 @@ export default function RegisterPage() {
                   Nome completo
                 </label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <User className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="reg-name"
                     type="text"
@@ -155,7 +160,7 @@ export default function RegisterPage() {
                   E-mail
                 </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <Mail className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="reg-email"
                     type="email"
@@ -174,7 +179,7 @@ export default function RegisterPage() {
                   Senha
                 </label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <Lock className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="reg-password"
                     type={showPassword ? "text" : "password"}
@@ -188,7 +193,7 @@ export default function RegisterPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-theme-muted hover:text-theme-primary p-1"
                     tabIndex={-1}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -206,12 +211,12 @@ export default function RegisterPage() {
               </button>
             </form>
 
-            <div className="mt-6 pt-5 border-t border-slate-100 text-center">
-              <p className="text-sm text-slate-500">
+            <div className="mt-6 pt-5 border-t border-theme text-center">
+              <p className="text-sm text-theme-secondary">
                 Já possui uma conta?{" "}
                 <Link
                   href="/login"
-                  className="font-bold text-emerald-600 hover:text-emerald-700"
+                  className="font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
                 >
                   Fazer login
                 </Link>

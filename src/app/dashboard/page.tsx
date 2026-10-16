@@ -8,7 +8,7 @@
  *   erros 403 com Vercel Blob privado.
  * - Exibe KPIs do rebanho em tempo real (Total de Animais, Capturas, Peso Médio e Cobertura).
  * - Suporta busca instantânea combinada com filtros de status fotográfico ("Todos", "Com fotos", "Sem fotos").
- * - Barra de navegação inferior no mobile incluindo acesso rápido ao Painel Admin.
+ * - Suporte integral a Tema Claro/Escuro (`ThemeToggle`) e barra inferior Mobile PWA (`MobileNav`).
  */
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -29,6 +29,8 @@ import {
 } from "lucide-react";
 import { Animal, getPhotoUrl } from "@/lib/types";
 import { logoutAction } from "@/app/login/actions";
+import ThemeToggle from "@/components/ThemeToggle";
+import MobileNav from "@/components/MobileNav";
 
 type FilterMode = "all" | "with_photos" | "without_photos";
 
@@ -56,7 +58,7 @@ function AnimalCard({ animal }: { animal: Animal }) {
     lastPhoto && typeof lastPhoto.score === "number" ? Math.round(lastPhoto.score) : null;
 
   return (
-    <div className="card overflow-hidden group relative hover:shadow-lg hover:border-emerald-300/80 transition-all duration-200 flex flex-col justify-between">
+    <div className="card overflow-hidden group relative hover:shadow-lg hover:border-emerald-500/60 transition-all duration-200 flex flex-col justify-between">
       {/* Link principal cobrindo a área superior/informativa */}
       <Link
         href={`/animal/${animal.id}`}
@@ -64,7 +66,7 @@ function AnimalCard({ animal }: { animal: Animal }) {
         aria-label={`Ver ficha de ${label}`}
       >
         {/* Capa Fotográfica */}
-        <div className="aspect-[16/10] relative overflow-hidden bg-slate-100">
+        <div className="aspect-[16/10] relative overflow-hidden bg-theme-surface-2">
           {photoUrl && !imgErr ? (
             <img
               src={photoUrl}
@@ -74,14 +76,14 @@ function AnimalCard({ animal }: { animal: Animal }) {
               onError={() => setImgErr(true)}
             />
           ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-100 to-slate-200/70 text-slate-400">
-              <span className="text-3xl opacity-50">🐄</span>
-              <span className="text-[11px] font-semibold text-slate-400">Sem foto</span>
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-theme-surface-2 text-theme-muted">
+              <span className="text-3xl opacity-60">🐄</span>
+              <span className="text-[11px] font-semibold text-theme-muted">Sem foto</span>
             </div>
           )}
 
           {/* Gradiente sutil */}
-          <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+          <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/65 to-transparent pointer-events-none" />
 
           {/* Badge Brinco (Monospace) */}
           <div className="absolute top-2.5 left-2.5 font-mono-tag text-xs font-bold px-2.5 py-1 rounded-lg bg-slate-900/85 text-white backdrop-blur-md shadow-xs tracking-wider">
@@ -92,7 +94,7 @@ function AnimalCard({ animal }: { animal: Animal }) {
           {bestScore !== null && (
             <div className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/90 text-white backdrop-blur-md shadow-xs">
               <Sparkles className="w-3 h-3" />
-              {bestScore}%
+              Score {bestScore}%
             </div>
           )}
 
@@ -106,24 +108,24 @@ function AnimalCard({ animal }: { animal: Animal }) {
         {/* Informações do Animal */}
         <div className="p-4 pb-3">
           <div className="flex items-start justify-between gap-2 mb-1.5">
-            <h3 className="font-extrabold text-base text-slate-900 truncate group-hover:text-emerald-700 transition-colors">
+            <h3 className="font-extrabold text-base text-theme-primary truncate group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
               {animal.name ? `${animal.name}` : `Brinco ${animal.tag}`}
             </h3>
-            <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200/60 shrink-0">
+            <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 shrink-0">
               {animal.breed}
             </span>
           </div>
 
-          <div className="flex items-center gap-3 text-xs font-medium text-slate-500">
+          <div className="flex items-center gap-3 text-xs font-medium text-theme-secondary">
             <span>{animal.sex}</span>
             <span>•</span>
             <span className="inline-flex items-center gap-1">
-              <Scale className="w-3.5 h-3.5 text-slate-400" />
+              <Scale className="w-3.5 h-3.5 text-theme-muted" />
               {animal.weight} kg
             </span>
             <span>•</span>
             <span className="inline-flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+              <Calendar className="w-3.5 h-3.5 text-theme-muted" />
               {animal.age}m
             </span>
           </div>
@@ -212,19 +214,19 @@ export default function DashboardPage() {
   }, [animals, query, filterMode]);
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-slate-50">
+    <div className="min-h-[100dvh] flex flex-col bg-theme-bg text-theme-primary">
       {/* Header Glassmorphic */}
       <header className="glass-header sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white shadow-xs shrink-0">
               <span className="text-lg">🐄</span>
             </div>
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-base font-extrabold text-slate-900 truncate">
-                Cattle<span className="text-emerald-600">Capture</span>
+              <h1 className="text-sm sm:text-base font-extrabold text-theme-primary truncate">
+                Cattle<span className="text-emerald-600 dark:text-emerald-400">Capture</span>
               </h1>
-              <p className="text-[11px] font-medium text-slate-500 truncate">
+              <p className="text-[11px] font-medium text-theme-secondary truncate">
                 {loading
                   ? "Carregando rebanho…"
                   : `${stats.totalAnimals} animais · ${stats.totalPhotos} capturas`}
@@ -233,20 +235,21 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            <ThemeToggle />
             {isAdmin && (
               <Link
                 href="/admin"
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl bg-amber-100 text-amber-900 border border-amber-300/80 hover:bg-amber-200 transition"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition"
               >
-                <ShieldCheck className="w-4 h-4 text-amber-700" />
-                <span>Admin</span>
+                <ShieldCheck className="w-4 h-4" />
+                <span className="hidden xs:inline">Admin</span>
               </Link>
             )}
             <Link
               href="/identify"
               className="hidden sm:inline-flex btn-secondary py-2 px-3.5 text-xs"
             >
-              <ScanLine className="w-4 h-4 text-emerald-600" />
+              <ScanLine className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               Identificar Brinco
             </Link>
             <Link
@@ -259,7 +262,7 @@ export default function DashboardPage() {
             <form action={logoutAction}>
               <button
                 type="submit"
-                className="p-2.5 rounded-xl text-slate-500 hover:text-red-600 hover:bg-red-50 transition"
+                className="p-2.5 rounded-xl text-theme-secondary hover:text-red-500 hover:bg-red-500/10 transition"
                 title="Sair da conta"
                 aria-label="Sair da conta"
               >
@@ -275,42 +278,43 @@ export default function DashboardPage() {
         {!loading && animals.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
             <div className="card p-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              <p className="text-xs font-bold uppercase tracking-wider text-theme-muted">
                 Animais
               </p>
-              <p className="text-2xl font-extrabold text-slate-900 mt-1">
+              <p className="text-2xl font-extrabold text-theme-primary mt-1">
                 {stats.totalAnimals}
               </p>
-              <p className="text-[11px] text-slate-500 mt-0.5">Cadastrados no painel</p>
+              <p className="text-[11px] text-theme-secondary mt-0.5">Cadastrados no painel</p>
             </div>
             <div className="card p-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-emerald-600">
+              <p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                 Dataset ICC
               </p>
-              <p className="text-2xl font-extrabold text-emerald-700 mt-1">
+              <p className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
                 {stats.totalPhotos}
               </p>
-              <p className="text-[11px] text-slate-500 mt-0.5">Fotos de traseira</p>
+              <p className="text-[11px] text-theme-secondary mt-0.5">Fotos de traseira</p>
             </div>
             <div className="card p-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              <p className="text-xs font-bold uppercase tracking-wider text-theme-muted">
                 Cobertura
               </p>
-              <p className="text-2xl font-extrabold text-slate-900 mt-1">
+              <p className="text-2xl font-extrabold text-theme-primary mt-1">
                 {stats.coverage}%
               </p>
-              <p className="text-[11px] text-slate-500 mt-0.5">
+              <p className="text-[11px] text-theme-secondary mt-0.5">
                 {stats.withPhotos} de {stats.totalAnimals} com foto
               </p>
             </div>
             <div className="card p-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              <p className="text-xs font-bold uppercase tracking-wider text-theme-muted">
                 Peso Médio
               </p>
-              <p className="text-2xl font-extrabold text-slate-900 mt-1">
-                {stats.avgWeight} <span className="text-sm font-semibold text-slate-500">kg</span>
+              <p className="text-2xl font-extrabold text-theme-primary mt-1">
+                {stats.avgWeight}{" "}
+                <span className="text-sm font-semibold text-theme-secondary">kg</span>
               </p>
-              <p className="text-[11px] text-slate-500 mt-0.5">Média do lote</p>
+              <p className="text-[11px] text-theme-secondary mt-0.5">Média do lote</p>
             </div>
           </div>
         )}
@@ -319,7 +323,7 @@ export default function DashboardPage() {
         {!loading && animals.length > 0 && (
           <div className="flex flex-col sm:flex-row gap-3 mb-6">
             <div className="relative flex-1">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-muted pointer-events-none" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -328,8 +332,8 @@ export default function DashboardPage() {
               />
             </div>
 
-            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shrink-0 overflow-x-auto">
-              <Filter className="w-3.5 h-3.5 text-slate-400 ml-2 mr-1 shrink-0" />
+            <div className="flex items-center gap-1.5 bg-theme-surface border border-theme rounded-xl p-1 shrink-0 overflow-x-auto">
+              <Filter className="w-3.5 h-3.5 text-theme-muted ml-2 mr-1 shrink-0" />
               {(
                 [
                   { id: "all", label: "Todos" },
@@ -344,7 +348,7 @@ export default function DashboardPage() {
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
                     filterMode === tab.id
                       ? "bg-emerald-600 text-white shadow-2xs"
-                      : "text-slate-600 hover:bg-slate-100"
+                      : "text-theme-secondary hover:bg-theme-surface-2"
                   }`}
                 >
                   {tab.label}
@@ -363,16 +367,16 @@ export default function DashboardPage() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="card py-20 px-6 flex flex-col items-center justify-center gap-4 text-center max-w-lg mx-auto my-6">
-            <div className="w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-3xl">
+            <div className="w-16 h-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-3xl">
               🐄
             </div>
             <div>
-              <h2 className="text-lg font-extrabold text-slate-900">
+              <h2 className="text-lg font-extrabold text-theme-primary">
                 {query || filterMode !== "all"
                   ? "Nenhum animal encontrado para este filtro"
                   : "Comece cadastrando seu primeiro animal"}
               </h2>
-              <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
+              <p className="text-sm text-theme-secondary mt-1 max-w-sm mx-auto">
                 {query || filterMode !== "all"
                   ? "Limpe a busca ou altere o filtro para visualizar todos os animais."
                   : "Cadastre o brinco e os dados básicos do bovino para liberar a captura guiada de fotos."}
@@ -397,7 +401,7 @@ export default function DashboardPage() {
                 </Link>
                 {isAdmin && (
                   <Link href="/admin" className="btn-secondary px-5 py-3">
-                    <ShieldCheck className="w-4 h-4 text-amber-600" />
+                    <ShieldCheck className="w-4 h-4 text-amber-500" />
                     Ver Todos no Painel Admin
                   </Link>
                 )}
@@ -413,26 +417,7 @@ export default function DashboardPage() {
         )}
       </main>
 
-      {/* Barra de Ação Inferior Mobile */}
-      <div
-        className="sm:hidden fixed bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-2.5 flex items-center justify-around gap-2"
-        style={{ paddingBottom: "max(0.65rem, env(safe-area-inset-bottom))" }}
-      >
-        <Link
-          href="/identify"
-          className="flex-1 btn-secondary py-2.5 text-xs"
-        >
-          <ScanLine className="w-4 h-4 text-emerald-600" />
-          Identificar
-        </Link>
-        <Link
-          href="/animal/new"
-          className="flex-1 btn-primary py-2.5 text-xs"
-        >
-          <Plus className="w-4 h-4" />
-          Novo Animal
-        </Link>
-      </div>
+      <MobileNav isAdmin={isAdmin} />
     </div>
   );
 }

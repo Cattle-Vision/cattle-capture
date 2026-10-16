@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["sharp", "onnxruntime-node"],
   outputFileTracingIncludes: {
     "/api/upload": ["./identifier.onnx"],
+    "/api/ai/score": ["./identifier.onnx"],
   },
   experimental: {
     serverActions: {

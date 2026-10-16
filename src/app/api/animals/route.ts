@@ -5,6 +5,7 @@
  * - Não trafega a coluna `filePath` nas listagens JSON (evitando envio desnecessário
  *   de strings longas de Data URI ou exposição de URLs internas do Vercel Blob).
  * - Inclui `score` e `createdAt` nas fotos para exibição rica na UI.
+ * - Garante execução única da migração de calibração de scores (`100 - score`).
  * - Permite que usuários `ADMIN` busquem qualquer brinco no modo de identificação rápida.
  */
 import { NextResponse } from "next/server";
@@ -20,11 +21,48 @@ const photoMetadataSelect = {
   createdAt: true,
 } as const;
 
+let scoreMigrationChecked = false;
+
+async function ensureScoresMigratedOnce() {
+  if (scoreMigrationChecked) return;
+  scoreMigrationChecked = true;
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "_cattle_migrations" (
+        "name" TEXT NOT NULL,
+        "applied_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "_cattle_migrations_pkey" PRIMARY KEY ("name")
+      );
+    `);
+    await prisma.$executeRawUnsafe(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM "_cattle_migrations" WHERE "name" = '20261016150000_invert_ai_scores'
+        ) THEN
+          UPDATE "Photo"
+          SET "score" = ROUND((100.0 - "score")::numeric, 1)::double precision
+          WHERE "score" IS NOT NULL
+            AND "score" >= 0
+            AND "score" <= 100;
+
+          INSERT INTO "_cattle_migrations" ("name")
+          VALUES ('20261016150000_invert_ai_scores');
+        END IF;
+      END $$;
+    `);
+  } catch (err) {
+    console.warn("[/api/animals] Aviso ao verificar migração de scores:", err);
+  }
+}
+
 export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
+
+  await ensureScoresMigratedOnce();
 
   const ownerId = Number(session.user.id);
   const isAdmin = session.user.role === "ADMIN";
@@ -33,7 +71,6 @@ export async function GET(request: Request) {
 
   if (tag) {
     const normalized = normalizeTag(tag);
-    // Busca primeiro nos animais do usuário; se for Admin e não achar, busca globalmente
     let animal = await prisma.animal.findFirst({
       where: { ownerId, tag: normalized },
       include: { photos: { select: photoMetadataSelect, orderBy: { createdAt: "desc" } } },

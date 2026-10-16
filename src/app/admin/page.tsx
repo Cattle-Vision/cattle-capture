@@ -1,14 +1,19 @@
 'use client';
 
 /**
- * Painel Administrativo e Curadoria do Dataset (`src/app/admin/page.tsx`).
+ * Painel Administrativo, Curadoria do Dataset e Gestão de Usuários (`src/app/admin/page.tsx`).
  *
- * Melhorias Arquiteturais e Visuais:
- * - Corrige as miniaturas quebradas usando `getPhotoUrl(lastPhoto.id)` (`/api/photos/[id]`).
- * - Adiciona inspeção rápida das fotos de qualquer animal via `PhotoLightbox` direto no Admin.
- * - Métricas executivas: Total de Animais, Total de Fotos, Score Médio IA e Operadores.
- * - Busca e filtragem por brinco, proprietário, raça ou status de captura.
- * - Exportação completa do Dataset em `.ZIP` (`images/`, `manifest.json` e `dataset.csv`).
+ * Funcionalidades:
+ * - Aba 1 ("Rebanho & Dataset"):
+ *   - Curadoria global de animais e fotos com miniaturas via `/api/photos/[id]`.
+ *   - Inspeção rápida via `PhotoLightbox` e exportação `.ZIP` completa.
+ * - Aba 2 ("Usuários & Admins"):
+ *   - Lista todos os usuários cadastrados com contagem de animais e fotos.
+ *   - Permite promover qualquer usuário comum (`USER`) a administrador (`ADMIN`)
+ *     ou rebaixar para `USER` com 1 clique (`PATCH /api/admin/users/[id]`).
+ *   - Permite cadastrar novos usuários/admins ou promover por e-mail (`POST /api/admin/users`).
+ *   - Permite remover contas de usuários (`DELETE /api/admin/users/[id]`).
+ * - Suporte integral a Tema Claro/Escuro e barra inferior Mobile PWA (`MobileNav`).
  */
 
 import { useState, useEffect, useMemo } from 'react';
@@ -25,11 +30,29 @@ import {
   Camera,
   Eye,
   ShieldCheck,
+  ShieldAlert,
   ExternalLink,
+  UserPlus,
+  Trash2,
+  Database,
+  X,
 } from 'lucide-react';
 import { AnimalWithOwner, getPhotoUrl } from '@/lib/types';
 import { useToast } from '@/components/ui/Toast';
 import PhotoLightbox from '@/components/PhotoLightbox';
+import ThemeToggle from '@/components/ThemeToggle';
+import MobileNav from '@/components/MobileNav';
+
+interface AdminUserRow {
+  id: number;
+  name: string;
+  email: string;
+  role: 'USER' | 'ADMIN' | string;
+  createdAt: string;
+  animalsCount: number;
+  photosCount: number;
+  isSelf?: boolean;
+}
 
 function SkeletonCard() {
   return (
@@ -45,30 +68,47 @@ function SkeletonCard() {
 }
 
 export default function AdminPage() {
+  const [activeTab, setActiveTab] = useState<'dataset' | 'users'>('dataset');
   const [animals, setAnimals] = useState<AnimalWithOwner[]>([]);
+  const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+
+  // Filtros de dataset e usuários
   const [query, setQuery] = useState('');
   const [onlyWithPhotos, setOnlyWithPhotos] = useState(false);
+  const [userQuery, setUserQuery] = useState('');
   const [previewAnimal, setPreviewAnimal] = useState<AnimalWithOwner | null>(null);
+
+  // Estado de ação nos usuários
+  const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'USER' | 'ADMIN'>('ADMIN');
+  const [savingUser, setSavingUser] = useState(false);
+
   const { toast } = useToast();
   const router = useRouter();
 
   useEffect(() => {
-    fetch('/api/admin/animals')
-      .then((r) => {
-        if (r.status === 401) {
+    Promise.all([fetch('/api/admin/animals'), fetch('/api/admin/users')])
+      .then(async ([animalsRes, usersRes]) => {
+        if (animalsRes.status === 401 || usersRes.status === 401) {
           router.push('/login');
-          return null;
+          return;
         }
-        if (r.status === 403) {
+        if (animalsRes.status === 403 || usersRes.status === 403) {
           router.push('/dashboard');
-          return null;
+          return;
         }
-        return r.json();
-      })
-      .then((data) => {
-        if (Array.isArray(data)) setAnimals(data as AnimalWithOwner[]);
+        const [animalsData, usersData] = await Promise.all([
+          animalsRes.json(),
+          usersRes.json(),
+        ]);
+        if (Array.isArray(animalsData)) setAnimals(animalsData as AnimalWithOwner[]);
+        if (Array.isArray(usersData)) setUsers(usersData as AdminUserRow[]);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -78,7 +118,8 @@ export default function AdminPage() {
     const totalAnimals = animals.length;
     const allPhotos = animals.flatMap((a) => a.photos ?? []);
     const totalPhotos = allPhotos.length;
-    const owners = new Set(animals.map((a) => a.ownerId)).size;
+    const totalUsers = users.length;
+    const totalAdmins = users.filter((u) => u.role === 'ADMIN').length;
     const scoredPhotos = allPhotos.filter(
       (p) => typeof p.score === 'number' && !Number.isNaN(p.score)
     );
@@ -90,10 +131,10 @@ export default function AdminPage() {
           )
         : null;
 
-    return { totalAnimals, totalPhotos, owners, avgScore };
-  }, [animals]);
+    return { totalAnimals, totalPhotos, totalUsers, totalAdmins, avgScore };
+  }, [animals, users]);
 
-  const filtered = useMemo(() => {
+  const filteredAnimals = useMemo(() => {
     return animals.filter((a) => {
       if (onlyWithPhotos && (a.photos?.length ?? 0) === 0) return false;
       const q = query.trim().toUpperCase();
@@ -107,6 +148,17 @@ export default function AdminPage() {
       );
     });
   }, [animals, query, onlyWithPhotos]);
+
+  const filteredUsers = useMemo(() => {
+    const q = userQuery.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter(
+      (u) =>
+        u.name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        u.role.toLowerCase().includes(q)
+    );
+  }, [users, userQuery]);
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -135,47 +187,176 @@ export default function AdminPage() {
     }
   };
 
+  /**
+   * Alterna o papel de um usuário entre "USER" e "ADMIN" com 1 clique.
+   */
+  const handleToggleRole = async (target: AdminUserRow) => {
+    const nextRole = target.role === 'ADMIN' ? 'USER' : 'ADMIN';
+    setUpdatingUserId(target.id);
+    try {
+      const res = await fetch(`/api/admin/users/${target.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: nextRole }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao alterar permissão');
+      }
+
+      setUsers((prev) =>
+        prev.map((u) => (u.id === target.id ? { ...u, role: nextRole } : u))
+      );
+      toast(
+        nextRole === 'ADMIN'
+          ? `${target.name} agora é Administrador!`
+          : `${target.name} alterado para Operador comum.`,
+        'success'
+      );
+    } catch (err) {
+      toast(
+        err instanceof Error ? err.message : 'Falha ao atualizar cargo',
+        'error'
+      );
+    } finally {
+      setUpdatingUserId(null);
+    }
+  };
+
+  /**
+   * Exclui um usuário após confirmação.
+   */
+  const handleDeleteUser = async (target: AdminUserRow) => {
+    if (
+      !window.confirm(
+        `Tem certeza que deseja excluir o usuário "${target.name}" (${target.email})?`
+      )
+    ) {
+      return;
+    }
+
+    setUpdatingUserId(target.id);
+    try {
+      const res = await fetch(`/api/admin/users/${target.id}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao excluir usuário');
+      }
+      setUsers((prev) => prev.filter((u) => u.id !== target.id));
+      toast('Usuário removido com sucesso.', 'success');
+    } catch (err) {
+      toast(
+        err instanceof Error ? err.message : 'Falha ao remover usuário',
+        'error'
+      );
+    } finally {
+      setUpdatingUserId(null);
+    }
+  };
+
+  /**
+   * Cria um novo usuário/admin ou promove um e-mail já cadastrado.
+   */
+  const handleCreateOrPromoteUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingUser(true);
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newUserName,
+          email: newUserEmail,
+          password: newUserPassword,
+          role: newUserRole,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao salvar usuário');
+      }
+
+      setUsers((prev) => {
+        const exists = prev.some((u) => u.id === data.id);
+        if (exists) {
+          return prev.map((u) =>
+            u.id === data.id
+              ? { ...u, name: data.name, role: data.role }
+              : u
+          );
+        }
+        return [data, ...prev];
+      });
+
+      toast(
+        data.updatedExisting
+          ? `Usuário existente atualizado para ${data.role}!`
+          : `Novo ${data.role === 'ADMIN' ? 'Administrador' : 'Operador'} cadastrado!`,
+        'success'
+      );
+      setShowAddUserModal(false);
+      setNewUserName('');
+      setNewUserEmail('');
+      setNewUserPassword('');
+      setNewUserRole('ADMIN');
+    } catch (err) {
+      toast(
+        err instanceof Error ? err.message : 'Erro ao criar/promover usuário',
+        'error'
+      );
+    } finally {
+      setSavingUser(false);
+    }
+  };
+
   return (
-    <div className="min-h-[100dvh] bg-slate-50 flex flex-col">
+    <div className="min-h-[100dvh] bg-theme-bg text-theme-primary flex flex-col pb-24 sm:pb-8">
       {/* Header */}
       <header className="glass-header sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
             <Link
               href="/dashboard"
-              className="p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition shrink-0"
+              className="p-2 rounded-xl text-theme-secondary hover:bg-theme-surface-2 transition shrink-0"
               aria-label="Voltar ao Dashboard"
             >
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-extrabold text-slate-900 truncate">
+                <h1 className="text-sm sm:text-base font-extrabold text-theme-primary truncate">
                   Central Administrativa
                 </h1>
-                <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900">
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
                   <ShieldCheck className="w-3 h-3" />
                   ADMIN
                 </span>
               </div>
-              <p className="text-xs text-slate-500 truncate">
-                Curadoria e exportação global do dataset ICC
+              <p className="text-[11px] text-theme-muted truncate hidden sm:block">
+                Curadoria global do dataset ICC e gestão de permissões
               </p>
             </div>
           </div>
 
-          <button
-            onClick={handleDownload}
-            disabled={downloading || stats.totalPhotos === 0}
-            className="btn-primary py-2.5 px-4 text-xs sm:text-sm shrink-0"
-          >
-            {downloading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Download className="w-4 h-4" />
-            )}
-            <span>{downloading ? 'Empacotando ZIP…' : 'Exportar Dataset (.ZIP)'}</span>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <ThemeToggle />
+            <button
+              onClick={handleDownload}
+              disabled={downloading || stats.totalPhotos === 0}
+              className="btn-primary py-2 px-3 sm:px-4 text-xs sm:text-sm shrink-0"
+            >
+              {downloading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              <span className="hidden xs:inline">
+                {downloading ? 'Empacotando…' : 'Exportar ZIP'}
+              </span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -198,272 +379,605 @@ export default function AdminPage() {
             {/* KPIs Executivos */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
               <div className="card p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                <p className="text-xs font-bold uppercase tracking-wider text-theme-muted">
                   Total Animais
                 </p>
-                <p className="text-2xl font-extrabold text-slate-900 mt-1">
+                <p className="text-2xl font-extrabold text-theme-primary mt-1">
                   {stats.totalAnimals}
                 </p>
-                <p className="text-[11px] text-slate-500 mt-0.5">Registros globais</p>
+                <p className="text-[11px] text-theme-secondary mt-0.5">
+                  Registros globais
+                </p>
               </div>
 
               <div className="card p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-emerald-600">
+                <p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                   Total Capturas
                 </p>
-                <p className="text-2xl font-extrabold text-emerald-700 mt-1">
+                <p className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
                   {stats.totalPhotos}
                 </p>
-                <p className="text-[11px] text-slate-500 mt-0.5">Prontas para exportação</p>
+                <p className="text-[11px] text-theme-secondary mt-0.5">
+                  Prontas para exportação
+                </p>
               </div>
 
               <div className="card p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                <p className="text-xs font-bold uppercase tracking-wider text-theme-muted">
                   Score Médio IA
                 </p>
-                <p className="text-2xl font-extrabold text-slate-900 mt-1">
+                <p className="text-2xl font-extrabold text-theme-primary mt-1">
                   {stats.avgScore !== null ? `${stats.avgScore}%` : '—'}
                 </p>
-                <p className="text-[11px] text-slate-500 mt-0.5">Confiança YOLO</p>
+                <p className="text-[11px] text-theme-secondary mt-0.5">
+                  Confiança Biométrica
+                </p>
               </div>
 
               <div className="card p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Operadores
+                <p className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                  Usuários / Admins
                 </p>
-                <p className="text-2xl font-extrabold text-slate-900 mt-1">
-                  {stats.owners}
+                <p className="text-2xl font-extrabold text-theme-primary mt-1">
+                  {stats.totalUsers}{' '}
+                  <span className="text-xs font-bold text-amber-600 dark:text-amber-400">
+                    ({stats.totalAdmins} admin{stats.totalAdmins === 1 ? '' : 's'})
+                  </span>
                 </p>
-                <p className="text-[11px] text-slate-500 mt-0.5">Usuários com coletas</p>
+                <p className="text-[11px] text-theme-secondary mt-0.5">
+                  Contas cadastradas
+                </p>
               </div>
             </div>
 
-            {/* Busca e Filtro */}
-            <div className="flex flex-col sm:flex-row gap-3 mb-6">
-              <div className="relative flex-1">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Filtrar por brinco, raça ou nome/e-mail do operador…"
-                  className="field-input pl-10"
-                />
+            {/* Seletor de Abas */}
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+              <div className="inline-flex p-1 rounded-2xl bg-theme-surface-2 border border-theme">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('dataset')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
+                    activeTab === 'dataset'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-theme-secondary hover:text-theme-primary'
+                  }`}
+                >
+                  <Database className="w-4 h-4" />
+                  <span>Rebanho & Dataset ({animals.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('users')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
+                    activeTab === 'users'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-theme-secondary hover:text-theme-primary'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  <span>Usuários & Admins ({users.length})</span>
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setOnlyWithPhotos((v) => !v)}
-                className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition shrink-0 ${
-                  onlyWithPhotos
-                    ? 'bg-emerald-600 text-white border-emerald-600'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
-              >
-                Apenas animais com fotos ({animals.filter((a) => (a.photos?.length ?? 0) > 0).length})
-              </button>
+              {activeTab === 'users' && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddUserModal(true)}
+                  className="btn-primary py-2.5 px-4 text-xs sm:text-sm"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Adicionar / Promover Admin</span>
+                </button>
+              )}
             </div>
 
-            {filtered.length === 0 ? (
-              <div className="card py-20 px-4 flex flex-col items-center justify-center gap-3 text-center text-slate-400">
-                <Users className="w-10 h-10 opacity-40" />
-                <p className="font-bold text-slate-700">Nenhum registro encontrado</p>
-                <p className="text-xs text-slate-500">
-                  Ajuste os filtros ou cadastre novos animais no painel.
-                </p>
-              </div>
-            ) : (
+            {/* ABA 1: REBANHO & DATASET */}
+            {activeTab === 'dataset' && (
               <>
-                {/* Mobile: Cards */}
-                <div className="sm:hidden flex flex-col gap-3">
-                  {filtered.map((animal) => {
-                    const lastPhoto = animal.photos?.[0];
-                    const photoUrl = lastPhoto ? getPhotoUrl(lastPhoto.id) : null;
-                    const photoCount = animal.photos?.length ?? 0;
+                <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-muted pointer-events-none" />
+                    <input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Filtrar por brinco, raça ou nome/e-mail do operador…"
+                      className="field-input pl-10"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setOnlyWithPhotos((v) => !v)}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition shrink-0 ${
+                      onlyWithPhotos
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-theme-surface text-theme-secondary border-theme hover:bg-theme-surface-2'
+                    }`}
+                  >
+                    Apenas com fotos (
+                    {animals.filter((a) => (a.photos?.length ?? 0) > 0).length})
+                  </button>
+                </div>
+
+                {filteredAnimals.length === 0 ? (
+                  <div className="card py-16 px-4 flex flex-col items-center justify-center gap-3 text-center">
+                    <Database className="w-10 h-10 text-theme-muted opacity-50" />
+                    <p className="font-bold text-theme-primary">
+                      Nenhum animal encontrado
+                    </p>
+                    <p className="text-xs text-theme-secondary">
+                      Ajuste os filtros ou cadastre novos animais no painel.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Mobile Cards */}
+                    <div className="sm:hidden flex flex-col gap-3">
+                      {filteredAnimals.map((animal) => {
+                        const lastPhoto = animal.photos?.[0];
+                        const photoUrl = lastPhoto
+                          ? getPhotoUrl(lastPhoto.id)
+                          : null;
+                        const photoCount = animal.photos?.length ?? 0;
+
+                        return (
+                          <div
+                            key={animal.id}
+                            className="card p-4 flex gap-3.5 items-center"
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                photoCount > 0 && setPreviewAnimal(animal)
+                              }
+                              className="w-16 h-16 rounded-xl bg-theme-surface-2 overflow-hidden shrink-0 flex items-center justify-center border border-theme relative"
+                            >
+                              {photoUrl ? (
+                                <img
+                                  src={photoUrl}
+                                  alt={animal.tag}
+                                  loading="lazy"
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <ImageIcon className="w-6 h-6 text-theme-muted" />
+                              )}
+                            </button>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <Link
+                                  href={`/animal/${animal.id}`}
+                                  className="font-mono-tag text-xs font-bold px-2 py-0.5 rounded bg-slate-900 dark:bg-emerald-950 text-white dark:text-emerald-300 border border-transparent dark:border-emerald-700/50"
+                                >
+                                  {animal.tag}
+                                </Link>
+                                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                                  {photoCount}{' '}
+                                  {photoCount === 1 ? 'foto' : 'fotos'}
+                                </span>
+                              </div>
+                              <p className="text-sm font-bold text-theme-primary mt-1 truncate">
+                                {animal.name || animal.breed} · {animal.sex} (
+                                {animal.weight}kg)
+                              </p>
+                              <p className="text-xs text-theme-secondary truncate">
+                                Operador:{' '}
+                                {animal.owner?.name || animal.owner?.email}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Desktop Table */}
+                    <div className="hidden sm:block card overflow-hidden">
+                      <table className="w-full text-left text-sm text-theme-secondary">
+                        <thead className="bg-theme-surface-2 border-b border-theme text-xs uppercase tracking-wider text-theme-muted font-bold">
+                          <tr>
+                            <th className="px-5 py-3.5">Prévia / Brinco</th>
+                            <th className="px-5 py-3.5">Zootecnia</th>
+                            <th className="px-5 py-3.5">Operador</th>
+                            <th className="px-5 py-3.5">Score IA</th>
+                            <th className="px-5 py-3.5">Capturas</th>
+                            <th className="px-5 py-3.5 text-right">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y border-theme">
+                          {filteredAnimals.map((a) => {
+                            const lastPhoto = a.photos?.[0];
+                            const photoUrl = lastPhoto
+                              ? getPhotoUrl(lastPhoto.id)
+                              : null;
+                            const photoCount = a.photos?.length ?? 0;
+                            const score =
+                              lastPhoto && typeof lastPhoto.score === 'number'
+                                ? Math.round(lastPhoto.score)
+                                : null;
+
+                            return (
+                              <tr
+                                key={a.id}
+                                className="hover:bg-theme-surface-2/60 transition-colors"
+                              >
+                                <td className="px-5 py-3.5">
+                                  <div className="flex items-center gap-3">
+                                    <button
+                                      type="button"
+                                      disabled={photoCount === 0}
+                                      onClick={() =>
+                                        photoCount > 0 && setPreviewAnimal(a)
+                                      }
+                                      className="w-12 h-12 rounded-xl bg-theme-surface-2 border border-theme overflow-hidden shrink-0 flex items-center justify-center group relative"
+                                      title={
+                                        photoCount > 0
+                                          ? 'Inspecionar fotos'
+                                          : 'Sem fotos'
+                                      }
+                                    >
+                                      {photoUrl ? (
+                                        <img
+                                          src={photoUrl}
+                                          alt={a.tag}
+                                          loading="lazy"
+                                          className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                                        />
+                                      ) : (
+                                        <ImageIcon className="w-5 h-5 text-theme-muted" />
+                                      )}
+                                    </button>
+                                    <div>
+                                      <Link
+                                        href={`/animal/${a.id}`}
+                                        className="font-mono-tag text-xs font-bold px-2 py-0.5 rounded bg-slate-900 dark:bg-emerald-950 text-white dark:text-emerald-300 hover:bg-emerald-700 transition"
+                                      >
+                                        {a.tag}
+                                      </Link>
+                                      {a.name && (
+                                        <p className="text-xs font-semibold text-theme-primary mt-1">
+                                          {a.name}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+
+                                <td className="px-5 py-3.5">
+                                  <p className="font-bold text-theme-primary">
+                                    {a.breed} · {a.sex}
+                                  </p>
+                                  <p className="text-xs text-theme-secondary">
+                                    {a.weight} kg · {a.age} meses
+                                  </p>
+                                </td>
+
+                                <td className="px-5 py-3.5">
+                                  <p className="font-semibold text-theme-primary">
+                                    {a.owner?.name || '—'}
+                                  </p>
+                                  <p className="text-xs text-theme-muted">
+                                    {a.owner?.email}
+                                  </p>
+                                </td>
+
+                                <td className="px-5 py-3.5">
+                                  {score !== null ? (
+                                    <span
+                                      className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full ${
+                                        score >= 45
+                                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                                          : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                                      }`}
+                                    >
+                                      <Sparkles className="w-3 h-3" />
+                                      {score}%
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-theme-muted">
+                                      —
+                                    </span>
+                                  )}
+                                </td>
+
+                                <td className="px-5 py-3.5">
+                                  <span className="font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full text-xs">
+                                    {photoCount}{' '}
+                                    {photoCount === 1 ? 'foto' : 'fotos'}
+                                  </span>
+                                </td>
+
+                                <td className="px-5 py-3.5 text-right">
+                                  <div className="inline-flex items-center gap-1.5">
+                                    {photoCount > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setPreviewAnimal(a)}
+                                        className="p-2 rounded-lg text-theme-secondary hover:text-emerald-600 hover:bg-emerald-500/10"
+                                        title="Inspecionar galeria"
+                                      >
+                                        <Eye className="w-4 h-4" />
+                                      </button>
+                                    )}
+                                    <Link
+                                      href={`/camera?animalId=${a.id}&animalName=${encodeURIComponent(
+                                        a.name || a.tag
+                                      )}`}
+                                      className="p-2 rounded-lg text-theme-secondary hover:text-emerald-600 hover:bg-emerald-500/10"
+                                      title="Capturar foto"
+                                    >
+                                      <Camera className="w-4 h-4" />
+                                    </Link>
+                                    <Link
+                                      href={`/animal/${a.id}`}
+                                      className="p-2 rounded-lg text-theme-secondary hover:text-theme-primary hover:bg-theme-surface-2"
+                                      title="Abrir ficha completa"
+                                    >
+                                      <ExternalLink className="w-4 h-4" />
+                                    </Link>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* ABA 2: USUÁRIOS & ADMINS */}
+            {activeTab === 'users' && (
+              <>
+                <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-muted pointer-events-none" />
+                    <input
+                      value={userQuery}
+                      onChange={(e) => setUserQuery(e.target.value)}
+                      placeholder="Buscar usuário por nome, e-mail ou nível de acesso…"
+                      className="field-input pl-10"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3">
+                  {filteredUsers.map((u) => {
+                    const isSelf = Boolean(u.isSelf);
+                    const isAdmin = u.role === 'ADMIN';
+                    const isBusy = updatingUserId === u.id;
 
                     return (
-                      <div key={animal.id} className="card p-4 flex gap-3.5 items-center">
-                        <button
-                          type="button"
-                          onClick={() => photoCount > 0 && setPreviewAnimal(animal)}
-                          className="w-16 h-16 rounded-xl bg-slate-100 overflow-hidden shrink-0 flex items-center justify-center border border-slate-200 relative"
-                        >
-                          {photoUrl ? (
-                            <img
-                              src={photoUrl}
-                              alt={animal.tag}
-                              loading="lazy"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <ImageIcon className="w-6 h-6 text-slate-300" />
-                          )}
-                        </button>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2">
-                            <Link
-                              href={`/animal/${animal.id}`}
-                              className="font-mono-tag text-xs font-bold px-2 py-0.5 rounded bg-slate-900 text-white"
-                            >
-                              {animal.tag}
-                            </Link>
-                            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-                              {photoCount} {photoCount === 1 ? 'foto' : 'fotos'}
-                            </span>
+                      <div
+                        key={u.id}
+                        className="card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                      >
+                        <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                          <div
+                            className={`w-11 h-11 rounded-2xl flex items-center justify-center font-extrabold text-sm shrink-0 ${
+                              isAdmin
+                                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                                : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                            }`}
+                          >
+                            {u.name.slice(0, 2).toUpperCase()}
                           </div>
-                          <p className="text-sm font-bold text-slate-900 mt-1 truncate">
-                            {animal.name || animal.breed} · {animal.sex} ({animal.weight}kg)
-                          </p>
-                          <p className="text-xs text-slate-500 truncate">
-                            Operador: {animal.owner?.name || animal.owner?.email}
-                          </p>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="font-extrabold text-theme-primary truncate">
+                                {u.name}
+                              </p>
+                              <span
+                                className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                  isAdmin
+                                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                                    : 'bg-theme-surface-2 text-theme-secondary border border-theme'
+                                }`}
+                              >
+                                {isAdmin ? (
+                                  <>
+                                    <ShieldCheck className="w-3 h-3" />
+                                    ADMIN
+                                  </>
+                                ) : (
+                                  'OPERADOR COMUM'
+                                )}
+                              </span>
+                              {isSelf && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                                  Você
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-theme-secondary truncate mt-0.5">
+                              {u.email}
+                            </p>
+                            <p className="text-[11px] text-theme-muted mt-1">
+                              {u.animalsCount} animais cadastrados ·{' '}
+                              {u.photosCount} fotos enviadas
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                          <button
+                            type="button"
+                            disabled={isBusy || isSelf}
+                            onClick={() => handleToggleRole(u)}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 disabled:opacity-45 ${
+                              isAdmin
+                                ? 'bg-theme-surface-2 text-theme-secondary border-theme hover:bg-amber-500/10 hover:text-amber-600'
+                                : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/25'
+                            }`}
+                            title={
+                              isSelf
+                                ? 'Você não pode alterar seu próprio cargo'
+                                : isAdmin
+                                ? 'Rebaixar para usuário comum'
+                                : 'Promover este usuário a Administrador'
+                            }
+                          >
+                            {isBusy ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : isAdmin ? (
+                              <ShieldAlert className="w-3.5 h-3.5" />
+                            ) : (
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                            )}
+                            <span>
+                              {isAdmin
+                                ? 'Tornar Usuário Comum'
+                                : 'Tornar Admin'}
+                            </span>
+                          </button>
+
+                          {!isSelf && (
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => handleDeleteUser(u)}
+                              className="p-2 rounded-xl text-rose-500 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition"
+                              title="Excluir usuário"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
                   })}
-                </div>
-
-                {/* Desktop: Tabela Completa */}
-                <div className="hidden sm:block card overflow-hidden">
-                  <table className="w-full text-left text-sm text-slate-600">
-                    <thead className="bg-slate-50 border-b border-slate-200/80 text-xs uppercase tracking-wider text-slate-400 font-bold">
-                      <tr>
-                        <th className="px-5 py-3.5">Prévia / Brinco</th>
-                        <th className="px-5 py-3.5">Zootecnia</th>
-                        <th className="px-5 py-3.5">Operador</th>
-                        <th className="px-5 py-3.5">Score IA</th>
-                        <th className="px-5 py-3.5">Capturas</th>
-                        <th className="px-5 py-3.5 text-right">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filtered.map((a) => {
-                        const lastPhoto = a.photos?.[0];
-                        const photoUrl = lastPhoto ? getPhotoUrl(lastPhoto.id) : null;
-                        const photoCount = a.photos?.length ?? 0;
-                        const score =
-                          lastPhoto && typeof lastPhoto.score === 'number'
-                            ? Math.round(lastPhoto.score)
-                            : null;
-
-                        return (
-                          <tr key={a.id} className="hover:bg-slate-50/80 transition-colors">
-                            <td className="px-5 py-3.5">
-                              <div className="flex items-center gap-3">
-                                <button
-                                  type="button"
-                                  disabled={photoCount === 0}
-                                  onClick={() => photoCount > 0 && setPreviewAnimal(a)}
-                                  className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center group relative"
-                                  title={photoCount > 0 ? 'Inspecionar fotos' : 'Sem fotos'}
-                                >
-                                  {photoUrl ? (
-                                    <img
-                                      src={photoUrl}
-                                      alt={a.tag}
-                                      loading="lazy"
-                                      className="w-full h-full object-cover group-hover:scale-110 transition-transform"
-                                    />
-                                  ) : (
-                                    <ImageIcon className="w-5 h-5 text-slate-300" />
-                                  )}
-                                </button>
-                                <div>
-                                  <Link
-                                    href={`/animal/${a.id}`}
-                                    className="font-mono-tag text-xs font-bold px-2 py-0.5 rounded bg-slate-900 text-white hover:bg-emerald-700 transition"
-                                  >
-                                    {a.tag}
-                                  </Link>
-                                  {a.name && (
-                                    <p className="text-xs font-semibold text-slate-700 mt-1">
-                                      {a.name}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            </td>
-
-                            <td className="px-5 py-3.5">
-                              <p className="font-bold text-slate-900">
-                                {a.breed} · {a.sex}
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                {a.weight} kg · {a.age} meses
-                              </p>
-                            </td>
-
-                            <td className="px-5 py-3.5">
-                              <p className="font-semibold text-slate-800">
-                                {a.owner?.name || '—'}
-                              </p>
-                              <p className="text-xs text-slate-400">{a.owner?.email}</p>
-                            </td>
-
-                            <td className="px-5 py-3.5">
-                              {score !== null ? (
-                                <span
-                                  className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full ${
-                                    score >= 40
-                                      ? 'bg-emerald-50 text-emerald-700'
-                                      : 'bg-amber-50 text-amber-700'
-                                  }`}
-                                >
-                                  <Sparkles className="w-3 h-3" />
-                                  {score}%
-                                </span>
-                              ) : (
-                                <span className="text-xs text-slate-400">—</span>
-                              )}
-                            </td>
-
-                            <td className="px-5 py-3.5">
-                              <span className="font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full text-xs">
-                                {photoCount} {photoCount === 1 ? 'foto' : 'fotos'}
-                              </span>
-                            </td>
-
-                            <td className="px-5 py-3.5 text-right">
-                              <div className="inline-flex items-center gap-1.5">
-                                {photoCount > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setPreviewAnimal(a)}
-                                    className="p-2 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50"
-                                    title="Inspecionar galeria"
-                                  >
-                                    <Eye className="w-4 h-4" />
-                                  </button>
-                                )}
-                                <Link
-                                  href={`/camera?animalId=${a.id}&animalName=${encodeURIComponent(
-                                    a.name || a.tag
-                                  )}`}
-                                  className="p-2 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50"
-                                  title="Capturar foto"
-                                >
-                                  <Camera className="w-4 h-4" />
-                                </Link>
-                                <Link
-                                  href={`/animal/${a.id}`}
-                                  className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100"
-                                  title="Abrir ficha completa"
-                                >
-                                  <ExternalLink className="w-4 h-4" />
-                                </Link>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
                 </div>
               </>
             )}
           </>
         )}
       </main>
+
+      {/* Modal para criar novo usuário/admin ou promover e-mail */}
+      {showAddUserModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowAddUserModal(false)}
+        >
+          <div
+            className="card max-w-md w-full p-6 animate-fade-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-extrabold text-theme-primary">
+                  Adicionar ou Promover Usuário
+                </h2>
+                <p className="text-xs text-theme-secondary mt-0.5">
+                  Cadastre uma nova conta ou informe um e-mail existente para
+                  promovê-lo a Admin.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddUserModal(false)}
+                className="p-1.5 rounded-lg text-theme-muted hover:text-theme-primary"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateOrPromoteUser} className="space-y-4">
+              <div>
+                <label className="field-label">Nome completo</label>
+                <input
+                  type="text"
+                  required
+                  value={newUserName}
+                  onChange={(e) => setNewUserName(e.target.value)}
+                  placeholder="Ex.: Dr. João Zootecnista"
+                  className="field-input"
+                />
+              </div>
+
+              <div>
+                <label className="field-label">E-mail</label>
+                <input
+                  type="email"
+                  required
+                  value={newUserEmail}
+                  onChange={(e) => setNewUserEmail(e.target.value)}
+                  placeholder="usuario@fazenda.com"
+                  className="field-input"
+                />
+              </div>
+
+              <div>
+                <label className="field-label">
+                  Senha (mín. 6 caracteres para novos usuários)
+                </label>
+                <input
+                  type="password"
+                  value={newUserPassword}
+                  onChange={(e) => setNewUserPassword(e.target.value)}
+                  placeholder="Deixe em branco se já tiver conta"
+                  className="field-input"
+                />
+              </div>
+
+              <div>
+                <label className="field-label">Nível de permissão</label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setNewUserRole('ADMIN')}
+                    className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 ${
+                      newUserRole === 'ADMIN'
+                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/40'
+                        : 'bg-theme-surface-2 text-theme-secondary border-theme'
+                    }`}
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    Administrador
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewUserRole('USER')}
+                    className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 ${
+                      newUserRole === 'USER'
+                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40'
+                        : 'bg-theme-surface-2 text-theme-secondary border-theme'
+                    }`}
+                  >
+                    <Users className="w-4 h-4" />
+                    Operador Comum
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddUserModal(false)}
+                  className="btn-secondary flex-1 py-2.5 text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingUser}
+                  className="btn-primary flex-1 py-2.5 text-xs"
+                >
+                  {savingUser ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <UserPlus className="w-4 h-4" />
+                  )}
+                  <span>Salvar Permissão</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Lightbox para inspeção rápida das fotos do animal selecionado */}
       {previewAnimal && (previewAnimal.photos?.length ?? 0) > 0 && (
@@ -473,6 +987,8 @@ export default function AdminPage() {
           onClose={() => setPreviewAnimal(null)}
         />
       )}
+
+      <MobileNav isAdmin={true} />
     </div>
   );
 }

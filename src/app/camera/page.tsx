@@ -1,20 +1,19 @@
 "use client";
 
 /**
- * Câmera Guiada e Upload Otimizado para Dataset ICC (`src/app/camera/page.tsx`).
+ * Câmera Guiada com IA em Tempo Real e Diagnóstico Pré-Upload (`src/app/camera/page.tsx`).
  *
- * Correções Críticas de Engenharia para Vercel:
- * 1. **Compressão Client-Side Obrigatória (`compressImageFile`)**:
- *    Tanto o disparo pelo streaming de vídeo quanto o envio pela Câmera Nativa / Galeria
- *    passam pelo pipeline Canvas JPEG (`máx 1600px, quality 0.86`), reduzindo arquivos de
- *    5–15 MB para ~180–400 KB. Isso elimina 100% dos erros `413 FUNCTION_PAYLOAD_TOO_LARGE`
- *    nas Serverless Functions da Vercel.
- * 2. **Dupla Entrada de Arquivo (Câmera Nativa + Galeria)**:
- *    Oferece botões dedicados para abrir a câmera nativa do celular (`capture="environment"`)
- *    ou escolher uma imagem existente na galeria/computador (sem `capture`).
- * 3. **Fallback Offline Automático (`enqueueSync`)**:
- *    Se o operador estiver sem sinal no curral, armazena a imagem comprimida no IndexedDB
- *    para sincronização automática assim que a conexão retornar.
+ * Arquitetura e Melhorias Solicitadas:
+ * 1. **Zero Checkboxes Desnecessários**:
+ *    Removido o checklist manual de 3 itens que bloqueava o salvamento.
+ * 2. **Score de IA em Tempo Real no Viewfinder**:
+ *    Enquanto a câmera aponta para o animal, analisa continuamente o quadro (combinando
+ *    análise óptica instantânea no cliente + inferência YOLOv8 ONNX periódica em `/api/ai/score`),
+ *    exibindo o Score ao vivo e mudando a cor da mira conforme a qualidade do enquadramento.
+ * 3. **Score de IA Calculado ANTES do Upload (na tela de Preview)**:
+ *    Assim que o usuário tira a foto ou seleciona uma imagem da galeria, o sistema calcula
+ *    e exibe imediatamente o Score de Confiança IA e o diagnóstico na tela de Preview,
+ *    **antes** de o usuário clicar em "Salvar no Dataset".
  */
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -31,37 +30,39 @@ import {
   Sparkles,
   Upload,
   WifiOff,
+  Loader2,
+  Activity,
 } from "lucide-react";
 import { compressImageFile, formatBytes } from "@/lib/image-client";
+import {
+  computeInstantVideoScore,
+  evaluatePhotoScoreBeforeUpload,
+  VisionScoreResult,
+} from "@/lib/vision-client";
 import { enqueueSync } from "@/lib/sync";
 
 type Screen = "viewfinder" | "preview" | "uploading" | "done" | "error";
 
-const CHECKLIST = [
-  "Animal posicionado de frente para a traseira (1m a 1,5m)",
-  "Garupa, ísquios (pinças) e inserção da cauda visíveis",
-  "Boa iluminação e sem obstáculos cobrindo o lombo",
-];
-
 async function captureVideoFrame(
   video: HTMLVideoElement,
-  canvas: HTMLCanvasElement
+  canvas: HTMLCanvasElement,
+  maxDim = 1600,
+  quality = 0.86
 ): Promise<{ blob: Blob; width: number; height: number } | null> {
   try {
     const vw = video.videoWidth;
     const vh = video.videoHeight;
     if (!vw || !vh) return null;
 
-    const MAX = 1600;
     let w = vw;
     let h = vh;
-    if (w > MAX || h > MAX) {
+    if (w > maxDim || h > maxDim) {
       if (w > h) {
-        h = Math.round((h * MAX) / w);
-        w = MAX;
+        h = Math.round((h * maxDim) / w);
+        w = maxDim;
       } else {
-        w = Math.round((w * MAX) / h);
-        h = MAX;
+        w = Math.round((w * maxDim) / h);
+        h = maxDim;
       }
     }
 
@@ -72,7 +73,7 @@ async function captureVideoFrame(
     ctx.drawImage(video, 0, 0, w, h);
 
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), "image/jpeg", 0.86)
+      canvas.toBlob((b) => resolve(b), "image/jpeg", quality)
     );
     if (!blob) return null;
     return { blob, width: w, height: h };
@@ -89,6 +90,7 @@ function CameraContent() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scratchCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const nativeCamRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
@@ -99,11 +101,18 @@ function CameraContent() {
   const [animalName, setAnimalName] = useState(paramName);
   const [previewUrl, setPreviewUrl] = useState("");
   const [imageMeta, setImageMeta] = useState("");
-  const [checks, setChecks] = useState([true, true, true]);
   const [camErr, setCamErr] = useState("");
   const [vidReady, setVidReady] = useState(false);
-  const [lowQuality, setLowQuality] = useState(false);
-  const [aiScore, setAiScore] = useState<number | null>(null);
+
+  // Estado do Score em Tempo Real (Viewfinder)
+  const [liveScore, setLiveScore] = useState<number | null>(null);
+  const [liveStatus, setLiveStatus] = useState("Analisando quadro…");
+
+  // Estado do Score Pré-Upload (calculado logo após tirar/escolher a foto, antes de salvar!)
+  const [scoringPreview, setScoringPreview] = useState(false);
+  const [previewAnalysis, setPreviewAnalysis] = useState<VisionScoreResult | null>(null);
+
+  // Estado pós-upload
   const [savedOffline, setSavedOffline] = useState(false);
   const [uploadErr, setUploadErr] = useState("");
 
@@ -117,6 +126,7 @@ function CameraContent() {
       .catch(() => {});
   }, [animalId, animalName]);
 
+  /* ── Inicializa câmera ao vivo ── */
   useEffect(() => {
     if (!animalId) {
       setCamErr("Animal não especificado. Volte ao painel e selecione um animal.");
@@ -127,7 +137,9 @@ function CameraContent() {
 
     (async () => {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setCamErr("Câmera ao vivo indisponível neste navegador. Use a Câmera do Aparelho ou Galeria abaixo.");
+        setCamErr(
+          "Câmera ao vivo indisponível neste navegador. Use a Câmera do Aparelho ou Galeria abaixo."
+        );
         return;
       }
 
@@ -144,7 +156,6 @@ function CameraContent() {
         { video: true, audio: false },
       ];
 
-      let lastErr: unknown;
       for (const c of attempts) {
         try {
           const s = await navigator.mediaDevices.getUserMedia(c);
@@ -161,21 +172,20 @@ function CameraContent() {
           await v.play().catch(() => {});
           setCamErr("");
           return;
-        } catch (e) {
-          lastErr = e;
+        } catch {
+          // tenta próxima constraint
         }
       }
       if (!cancelled) {
-        console.warn("Camera stream fallback:", lastErr);
         setCamErr(
-          "Permissão de vídeo negada ou câmera não detectada. Use a Câmera Nativa ou envie da Galeria."
+          "Câmera ao vivo bloqueada ou indisponível. Use os botões de Câmera Nativa ou Galeria."
         );
       }
     })();
 
     const timer = setTimeout(() => {
       if (!cancelled && !videoRef.current?.videoWidth) {
-        setCamErr((e) => e || "Câmera demorou a responder. Use os botões de Câmera Nativa ou Galeria.");
+        setCamErr((e) => e || "Câmera demorou a iniciar. Use a Câmera Nativa ou Galeria.");
       }
     }, 5000);
 
@@ -187,6 +197,62 @@ function CameraContent() {
     };
   }, [animalId]);
 
+  /* ── Loop de IA em Tempo Real no Viewfinder ── */
+  useEffect(() => {
+    if (screen !== "viewfinder" || !vidReady || !!camErr) return;
+
+    let active = true;
+    let inFlightServerCheck = false;
+    let tickCount = 0;
+
+    const interval = setInterval(async () => {
+      if (!active) return;
+      const video = videoRef.current;
+      const scratch = scratchCanvasRef.current;
+      if (!video || !scratch || !video.videoWidth) return;
+
+      // 1. Análise óptica instantânea a cada 400ms
+      const instant = computeInstantVideoScore(video, scratch);
+      if (instant && active) {
+        setLiveScore((prev) =>
+          prev === null ? instant.score : Math.round(prev * 0.4 + instant.score * 0.6)
+        );
+        setLiveStatus(instant.statusText);
+      }
+
+      // 2. A cada ~2.0s (5 ticks), consulta a inferência IA no servidor em background
+      tickCount++;
+      if (tickCount % 5 === 0 && !inFlightServerCheck && navigator.onLine) {
+        inFlightServerCheck = true;
+        try {
+          const miniFrame = await captureVideoFrame(video, scratch, 320, 0.72);
+          if (miniFrame && active) {
+            const aiRes = await evaluatePhotoScoreBeforeUpload(miniFrame.blob);
+            if (active && typeof aiRes.score === "number") {
+              setLiveScore(Math.round(aiRes.score));
+              setLiveStatus(
+                aiRes.score >= 65
+                  ? "IA: Traseira bem enquadrada"
+                  : aiRes.score >= 40
+                  ? "IA: Enquadramento aceitável"
+                  : "IA: Centralize a garupa (1m)"
+              );
+            }
+          }
+        } catch {
+          // ignora erro silenciosamente no loop live
+        } finally {
+          inFlightServerCheck = false;
+        }
+      }
+    }, 400);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [screen, vidReady, camErr]);
+
   useEffect(() => {
     return () => {
       if (previewRef.current.startsWith("blob:")) {
@@ -195,16 +261,28 @@ function CameraContent() {
     };
   }, []);
 
+  /* ── Avalia o Score IA IMEDIATAMENTE após capturar/escolher a foto (ANTES do upload!) ── */
+  const runPreUploadScoring = async (blob: Blob) => {
+    setScoringPreview(true);
+    setPreviewAnalysis(null);
+    try {
+      const result = await evaluatePhotoScoreBeforeUpload(blob);
+      setPreviewAnalysis(result);
+    } finally {
+      setScoringPreview(false);
+    }
+  };
+
   /* ── Captura do frame de vídeo ao vivo ── */
   const handleCapture = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || !vidReady) {
-      setCamErr("Aguarde a inicialização da câmera ou use o botão de arquivo.");
+      setCamErr("Aguarde a câmera iniciar ou envie da galeria.");
       return;
     }
 
-    const result = await captureVideoFrame(video, canvas);
+    const result = await captureVideoFrame(video, canvas, 1600, 0.86);
     if (!result) {
       setCamErr("Não foi possível capturar o quadro. Use a Câmera Nativa.");
       return;
@@ -221,16 +299,17 @@ function CameraContent() {
     navigator.vibrate?.(40);
     setPreviewUrl(url);
     setImageMeta(`${result.width}×${result.height} · ${formatBytes(result.blob.size)}`);
-    setChecks([true, true, true]);
     setScreen("preview");
+
+    // Calcula o Score IA ANTES de o usuário fazer o upload
+    void runPreUploadScoring(result.blob);
   };
 
-  /* ── Captura via Câmera Nativa ou Galeria (com compressão automática!) ── */
+  /* ── Captura via Câmera Nativa ou Galeria (com compressão + Score IA pré-upload!) ── */
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Comprime para JPEG <= 1600px (~200KB) para evitar erro 413 na Vercel
     const compressed = await compressImageFile(file, 1600, 0.86);
 
     if (previewRef.current.startsWith("blob:")) {
@@ -247,17 +326,19 @@ function CameraContent() {
         ? `${compressed.width}×${compressed.height} · ${formatBytes(compressed.compressedSize)}`
         : formatBytes(compressed.compressedSize)
     );
-    setChecks([true, true, true]);
     setScreen("preview");
 
     if (nativeCamRef.current) nativeCamRef.current.value = "";
     if (galleryRef.current) galleryRef.current.value = "";
+
+    // Calcula o Score IA imediatamente na tela de Preview, ANTES do upload
+    void runPreUploadScoring(compressed.blob);
   };
 
-  /* ── Envio para `/api/upload` com fallback offline ── */
+  /* ── Salvar no Dataset (envia o score já calculado junto com a imagem) ── */
   const handleSave = async () => {
     const blob = blobRef.current;
-    if (!blob || !animalId || !checks.every(Boolean)) return;
+    if (!blob || !animalId) return;
 
     setScreen("uploading");
     setUploadErr("");
@@ -268,24 +349,30 @@ function CameraContent() {
     fd.append("file", blob, fileName);
     fd.append("animalId", animalId);
     fd.append("view", "REAR");
+    if (previewAnalysis && typeof previewAnalysis.score === "number") {
+      fd.append("preScore", String(previewAnalysis.score));
+    }
 
     try {
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       const data = await res.json().catch(() => ({}));
 
       if (res.ok) {
-        setLowQuality(data.lowQuality === true);
-        setAiScore(typeof data.score === "number" ? data.score : null);
+        if (typeof data.score === "number" && !previewAnalysis) {
+          setPreviewAnalysis({
+            score: data.score,
+            lowQuality: Boolean(data.lowQuality),
+            source: "yolo-onnx",
+            feedback: "",
+          });
+        }
         setScreen("done");
         return;
       }
 
-      console.error("Upload error:", data);
       setUploadErr(data.error || `Falha no envio (HTTP ${res.status}). Tente novamente.`);
       setScreen("error");
-    } catch (err) {
-      console.error("Network error:", err);
-      // Se estiver offline, salva na fila IndexedDB
+    } catch {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
         try {
           const arrayBuf = await blob.arrayBuffer();
@@ -299,7 +386,7 @@ function CameraContent() {
           setScreen("done");
           return;
         } catch {
-          // Segue para tela de erro padrão
+          // Segue para erro padrão
         }
       }
       setUploadErr("Sem conexão com o servidor. Verifique sua internet e tente novamente.");
@@ -315,12 +402,15 @@ function CameraContent() {
     previewRef.current = "";
     setPreviewUrl("");
     setImageMeta("");
-    setLowQuality(false);
-    setAiScore(null);
+    setPreviewAnalysis(null);
+    setScoringPreview(false);
     setSavedOffline(false);
     setUploadErr("");
     setScreen("viewfinder");
   };
+
+  const finalScore = previewAnalysis?.score ?? null;
+  const isFinalLow = finalScore !== null && finalScore < 40;
 
   /* ── Tela de Sucesso ── */
   if (screen === "done") {
@@ -330,7 +420,7 @@ function CameraContent() {
           className={`w-20 h-20 rounded-full flex items-center justify-center shadow-xl ${
             savedOffline
               ? "bg-amber-500"
-              : lowQuality
+              : isFinalLow
               ? "bg-amber-600"
               : "bg-emerald-500 shadow-emerald-500/25"
           }`}
@@ -344,40 +434,33 @@ function CameraContent() {
 
         <div className="text-center max-w-sm">
           <h2 className="text-2xl font-extrabold text-white mb-2">
-            {savedOffline ? "Salva na fila offline!" : "Captura registrada!"}
+            {savedOffline ? "Salva na fila offline!" : "Foto salva no dataset!"}
           </h2>
           <p className="text-slate-400 text-sm leading-relaxed">
             {savedOffline ? (
               <>
                 A imagem de <strong className="text-white">{animalName || "animal"}</strong> será
-                sincronizada automaticamente assim que a internet voltar.
+                sincronizada automaticamente quando houver conexão.
               </>
             ) : (
               <>
                 Imagem posterior de{" "}
-                <strong className="text-white">{animalName || "animal"}</strong> otimizada e salva
-                no dataset de ICC.
+                <strong className="text-white">{animalName || "animal"}</strong> registrada com
+                sucesso.
               </>
             )}
           </p>
 
-          {aiScore !== null && !savedOffline && (
-            <div className="mt-4 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+          {finalScore !== null && !savedOffline && (
+            <div
+              className={`mt-4 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-extrabold border ${
+                finalScore >= 40
+                  ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                  : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+              }`}
+            >
               <Sparkles className="w-3.5 h-3.5" />
-              Score de Confiança IA: {Math.round(aiScore)}%
-            </div>
-          )}
-
-          {lowQuality && (
-            <div className="mt-4 text-left rounded-2xl p-4 flex gap-3 bg-amber-950/60 border border-amber-700/60">
-              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-amber-300 font-bold text-sm">Atenção ao enquadramento</p>
-                <p className="text-amber-200/80 text-xs mt-1 leading-relaxed">
-                  A foto foi salva no dataset, mas o detector IA indicou baixa confiança para
-                  traseira bovina. Caso necessário, capture mais um ângulo.
-                </p>
-              </div>
+              Score IA Registrado: {Math.round(finalScore)}%
             </div>
           )}
         </div>
@@ -387,13 +470,13 @@ function CameraContent() {
             onClick={() => router.push(`/animal/${animalId}`)}
             className="btn-primary w-full py-4 text-sm"
           >
-            Ver Galeria do Animal
+            Ver Ficha do Animal
           </button>
           <button
             onClick={retake}
             className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm font-bold text-white transition"
           >
-            Capturar Outra Foto
+            Tirar Outra Foto
           </button>
         </div>
       </div>
@@ -428,12 +511,15 @@ function CameraContent() {
     );
   }
 
+  const isLiveGood = (liveScore ?? 0) >= 45;
+
   /* ── Viewfinder + Preview + Uploading ── */
   return (
     <div className="relative w-full h-[100dvh] bg-slate-950 overflow-hidden select-none">
       <canvas ref={canvasRef} className="hidden" />
+      <canvas ref={scratchCanvasRef} className="hidden" />
 
-      {/* Input 1: Câmera nativa do celular (traseira) */}
+      {/* Input 1: Câmera nativa do aparelho */}
       <input
         ref={nativeCamRef}
         type="file"
@@ -443,7 +529,7 @@ function CameraContent() {
         onChange={handleFile}
       />
 
-      {/* Input 2: Galeria de fotos / computador */}
+      {/* Input 2: Galeria de fotos / arquivo */}
       <input
         ref={galleryRef}
         type="file"
@@ -500,36 +586,67 @@ function CameraContent() {
         </button>
       </div>
 
-      {/* ── MODO VIEWFINDER ── */}
+      {/* ── MODO VIEWFINDER COM SCORE EM TEMPO REAL ── */}
       {screen === "viewfinder" && (
         <>
-          {/* Guia Anatômico de Enquadramento */}
           {!camErr && (
             <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none p-6">
-              <div className="relative w-[74%] max-w-[290px] aspect-[3/4] rounded-3xl border-2 border-white/25 shadow-[0_0_0_9999px_rgba(2,6,23,0.45)]">
-                {/* Cantoneiras Esmeralda */}
-                <div className="absolute -top-0.5 -left-0.5 w-7 h-7 border-t-4 border-l-4 border-emerald-400 rounded-tl-2xl" />
-                <div className="absolute -top-0.5 -right-0.5 w-7 h-7 border-t-4 border-r-4 border-emerald-400 rounded-tr-2xl" />
-                <div className="absolute -bottom-0.5 -left-0.5 w-7 h-7 border-b-4 border-l-4 border-emerald-400 rounded-bl-2xl" />
-                <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 border-b-4 border-r-4 border-emerald-400 rounded-br-2xl" />
+              <div
+                className={`relative w-[74%] max-w-[290px] aspect-[3/4] rounded-3xl border-2 transition-colors duration-300 shadow-[0_0_0_9999px_rgba(2,6,23,0.48)] ${
+                  isLiveGood ? "border-emerald-400/50" : "border-white/25"
+                }`}
+              >
+                {/* Badge de Score IA em Tempo Real no Topo do Guia */}
+                {vidReady && liveScore !== null && (
+                  <div
+                    className={`absolute -top-11 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-extrabold whitespace-nowrap backdrop-blur-md border transition-colors ${
+                      isLiveGood
+                        ? "bg-emerald-950/90 text-emerald-300 border-emerald-500/50"
+                        : "bg-slate-900/90 text-amber-300 border-amber-500/40"
+                    }`}
+                  >
+                    <Activity className="w-3.5 h-3.5 animate-pulse" />
+                    <span>Score Tempo Real: {liveScore}%</span>
+                  </div>
+                )}
+
+                {/* Cantoneiras Dinâmicas */}
+                <div
+                  className={`absolute -top-0.5 -left-0.5 w-7 h-7 border-t-4 border-l-4 rounded-tl-2xl transition-colors ${
+                    isLiveGood ? "border-emerald-400" : "border-amber-400"
+                  }`}
+                />
+                <div
+                  className={`absolute -top-0.5 -right-0.5 w-7 h-7 border-t-4 border-r-4 rounded-tr-2xl transition-colors ${
+                    isLiveGood ? "border-emerald-400" : "border-amber-400"
+                  }`}
+                />
+                <div
+                  className={`absolute -bottom-0.5 -left-0.5 w-7 h-7 border-b-4 border-l-4 rounded-bl-2xl transition-colors ${
+                    isLiveGood ? "border-emerald-400" : "border-amber-400"
+                  }`}
+                />
+                <div
+                  className={`absolute -bottom-0.5 -right-0.5 w-7 h-7 border-b-4 border-r-4 rounded-br-2xl transition-colors ${
+                    isLiveGood ? "border-emerald-400" : "border-amber-400"
+                  }`}
+                />
 
                 {/* Silhueta guia central */}
                 <svg
                   viewBox="0 0 200 260"
                   className="w-full h-full opacity-35"
                   fill="none"
-                  stroke="#34D399"
+                  stroke={isLiveGood ? "#34D399" : "#FBBF24"}
                   strokeWidth="2"
                   strokeDasharray="6 6"
                 >
-                  {/* Linha central da coluna/cauda */}
                   <line x1="100" y1="35" x2="100" y2="225" />
-                  {/* Contorno referencial de garupa e ísquios */}
                   <path d="M50 75 Q100 50 150 75 L160 185 Q100 200 40 185 Z" />
                 </svg>
 
-                <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-950/85 border border-emerald-500/30 text-emerald-300 text-xs font-bold px-3.5 py-1.5 rounded-full whitespace-nowrap backdrop-blur-md">
-                  Centralize garupa, pinças e cauda (1m)
+                <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-950/85 border border-white/15 text-white/90 text-xs font-bold px-3.5 py-1.5 rounded-full whitespace-nowrap backdrop-blur-md">
+                  {liveStatus}
                 </div>
               </div>
             </div>
@@ -620,9 +737,10 @@ function CameraContent() {
         </>
       )}
 
-      {/* ── MODO PREVIEW & CHECKLIST ── */}
+      {/* ── MODO PREVIEW: EXIBE SCORE IA ANTES DO UPLOAD (SEM CHECKBOXES!) ── */}
       {screen === "preview" && previewUrl && (
         <div className="absolute inset-0 z-30 flex flex-col bg-slate-950">
+          {/* Imagem Capturada */}
           <div className="flex-1 relative flex items-center justify-center p-4 overflow-hidden">
             <img
               src={previewUrl}
@@ -630,38 +748,77 @@ function CameraContent() {
               className="max-w-full max-h-full object-contain rounded-2xl border border-white/10 shadow-2xl"
             />
             {imageMeta && (
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 border border-white/10 text-emerald-300 text-[11px] font-bold px-3 py-1 rounded-full backdrop-blur-md">
-                ✓ {imageMeta} · Pronta para envio
+              <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-slate-900/90 border border-white/10 text-slate-300 text-[11px] font-bold px-3 py-1 rounded-full backdrop-blur-md">
+                {imageMeta}
               </div>
             )}
           </div>
 
-          {/* Checklist de Validação */}
-          <div className="px-4 pb-3 space-y-2 max-w-lg mx-auto w-full">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-1">
-              Verificação de Qualidade do Dataset
-            </p>
-            {CHECKLIST.map((item, i) => (
-              <label
-                key={item}
-                className="flex items-center gap-3 text-xs sm:text-sm text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-3.5 py-2.5 cursor-pointer transition"
-              >
-                <input
-                  type="checkbox"
-                  checked={checks[i]}
-                  onChange={(e) =>
-                    setChecks((p) => p.map((v, idx) => (idx === i ? e.target.checked : v)))
-                  }
-                  className="w-4 h-4 rounded accent-emerald-500"
-                />
-                <span>{item}</span>
-              </label>
-            ))}
+          {/* Card de Diagnóstico IA Pré-Upload */}
+          <div className="px-4 pb-3 max-w-lg mx-auto w-full">
+            <div className="rounded-2xl bg-slate-900/95 border border-white/10 p-4 backdrop-blur-md">
+              {scoringPreview ? (
+                <div className="flex items-center gap-3 py-1">
+                  <Loader2 className="w-5 h-5 animate-spin text-emerald-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-extrabold text-white">
+                      Analisando imagem com IA antes do envio…
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      Verificando enquadramento da traseira e nitidez
+                    </p>
+                  </div>
+                </div>
+              ) : previewAnalysis ? (
+                <div className="flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles
+                        className={`w-4 h-4 ${
+                          previewAnalysis.score >= 40 ? "text-emerald-400" : "text-amber-400"
+                        }`}
+                      />
+                      <span className="text-xs font-extrabold uppercase tracking-wider text-slate-300">
+                        Diagnóstico IA Pré-Upload
+                      </span>
+                    </div>
+                    <span
+                      className={`text-sm font-extrabold px-2.5 py-0.5 rounded-full ${
+                        previewAnalysis.score >= 65
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                          : previewAnalysis.score >= 40
+                          ? "bg-teal-500/20 text-teal-300 border border-teal-500/30"
+                          : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                      }`}
+                    >
+                      Score: {Math.round(previewAnalysis.score)}%
+                    </span>
+                  </div>
+
+                  {/* Barra de progresso do Score */}
+                  <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        previewAnalysis.score >= 40 ? "bg-emerald-500" : "bg-amber-500"
+                      }`}
+                      style={{ width: `${Math.max(8, Math.min(100, previewAnalysis.score))}%` }}
+                    />
+                  </div>
+
+                  <div className="flex items-start gap-2 text-xs text-slate-300 leading-relaxed">
+                    {previewAnalysis.lowQuality && (
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    )}
+                    <span>{previewAnalysis.feedback}</span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
 
-          {/* Ações de Confirmação */}
+          {/* Botões Diretos: Refazer ou Salvar no Dataset */}
           <div
-            className="flex gap-3 px-4 py-4 bg-slate-900/95 border-t border-white/10"
+            className="flex gap-3 px-4 py-4 bg-slate-900/95 border-t border-white/10 max-w-lg mx-auto w-full"
             style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
           >
             <button
@@ -669,15 +826,15 @@ function CameraContent() {
               className="flex-1 flex items-center justify-center gap-2 py-4 bg-slate-800 hover:bg-slate-700 rounded-2xl text-white font-bold text-sm"
             >
               <RotateCcw className="w-4 h-4" />
-              Refazer
+              Tirar Outra
             </button>
             <button
               onClick={handleSave}
-              disabled={!checks.every(Boolean)}
-              className="flex-1 btn-primary py-4 rounded-2xl text-sm disabled:opacity-40"
+              disabled={scoringPreview}
+              className="flex-1 btn-primary py-4 rounded-2xl text-sm"
             >
               <Check className="w-5 h-5" />
-              Confirmar e Salvar
+              Salvar no Dataset
             </button>
           </div>
         </div>
@@ -689,9 +846,9 @@ function CameraContent() {
           <div className="bg-slate-900 border border-white/10 rounded-3xl p-8 flex flex-col items-center gap-4 max-w-xs w-full text-center shadow-2xl">
             <RefreshCcw className="w-10 h-10 animate-spin text-emerald-400" />
             <div>
-              <p className="text-white font-extrabold text-base">Processando e salvando…</p>
+              <p className="text-white font-extrabold text-base">Enviando para o dataset…</p>
               <p className="text-slate-400 text-xs mt-1">
-                Validando com IA e sincronizando no armazenamento da nuvem
+                Sincronizando imagem otimizada com o armazenamento em nuvem
               </p>
             </div>
           </div>

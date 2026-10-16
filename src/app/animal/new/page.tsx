@@ -8,12 +8,15 @@
  * - Seletor visual de sexo (Fêmea / Macho).
  * - Botão duplo: "Cadastrar e Fotografar Agora" (vai direto para `/camera`) ou
  *   "Salvar e Abrir Ficha" (vai para `/animal/[id]`).
+ * - Suporte completo a Tema Claro/Escuro (`ThemeToggle`) e barra inferior Mobile PWA (`MobileNav`).
  */
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2, Camera, Check, Sparkles } from "lucide-react";
 import { useToast } from "@/components/ui/Toast";
 import { BREEDS, SEX_OPTIONS, isValidTag, normalizeTag } from "@/lib/animal";
+import ThemeToggle from "@/components/ThemeToggle";
+import MobileNav from "@/components/MobileNav";
 
 interface AnimalFormState {
   tag: string;
@@ -113,21 +116,26 @@ function NewAnimalForm() {
   };
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-slate-50">
+    <div className="min-h-[100dvh] flex flex-col bg-theme-bg text-theme-primary pb-24 sm:pb-8">
       <header className="glass-header sticky top-0 z-20">
-        <div className="max-w-2xl mx-auto px-4 h-15 flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => router.back()}
-            aria-label="Voltar"
-            className="p-2 rounded-xl text-slate-600 hover:bg-slate-100"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h1 className="text-base font-extrabold text-slate-900">Novo Animal</h1>
-            <p className="text-xs text-slate-500">Cadastro no dataset de condição corporal</p>
+        <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => router.back()}
+              aria-label="Voltar"
+              className="p-2 rounded-xl text-theme-secondary hover:bg-theme-surface-2"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h1 className="text-base font-extrabold text-theme-primary">Novo Animal</h1>
+              <p className="text-xs text-theme-secondary">
+                Cadastro no dataset de condição corporal
+              </p>
+            </div>
           </div>
+          <ThemeToggle />
         </div>
       </header>
 
@@ -147,7 +155,7 @@ function NewAnimalForm() {
                   <button
                     type="button"
                     onClick={generateSampleTag}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 hover:text-emerald-700"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
                   >
                     <Sparkles className="w-3 h-3" />
                     Gerar código
@@ -197,7 +205,7 @@ function NewAnimalForm() {
                       className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition ${
                         active
                           ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
-                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                          : "bg-theme-surface-2 text-theme-secondary border-theme hover:text-theme-primary"
                       }`}
                     >
                       {breed}
@@ -222,19 +230,19 @@ function NewAnimalForm() {
                       onClick={() => setField("sex", opt.value)}
                       className={`p-3.5 rounded-xl border text-left transition flex items-center justify-between ${
                         active
-                          ? "bg-emerald-50/80 border-emerald-500 text-emerald-950 ring-2 ring-emerald-500/15"
-                          : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                          ? "bg-emerald-500/10 border-emerald-500 text-theme-primary ring-2 ring-emerald-500/20"
+                          : "bg-theme-surface-2 border-theme text-theme-secondary hover:text-theme-primary"
                       }`}
                     >
                       <div>
-                        <p className="text-sm font-extrabold">{opt.value}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">{opt.label}</p>
+                        <p className="text-sm font-extrabold text-theme-primary">{opt.value}</p>
+                        <p className="text-xs text-theme-secondary mt-0.5">{opt.label}</p>
                       </div>
                       <div
                         className={`w-5 h-5 rounded-full flex items-center justify-center ${
                           active
                             ? "bg-emerald-600 text-white"
-                            : "border border-slate-300"
+                            : "border border-theme"
                         }`}
                       >
                         {active && <Check className="w-3 h-3" />}
@@ -312,13 +320,15 @@ function NewAnimalForm() {
           </form>
         </div>
       </main>
+
+      <MobileNav />
     </div>
   );
 }
 
 export default function NewAnimalPage() {
   return (
-    <Suspense fallback={<div className="min-h-[100dvh] bg-slate-50" />}>
+    <Suspense fallback={<div className="min-h-[100dvh] bg-theme-bg" />}>
       <NewAnimalForm />
     </Suspense>
   );

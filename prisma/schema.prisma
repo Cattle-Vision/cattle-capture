@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATA_POSTGRES_PRISMA_URL")
+  provider  = "postgresql"
+  url       = env("DATA_POSTGRES_PRISMA_URL")
   directUrl = env("DATA_POSTGRES_URL_NON_POOLING")
 }
 
@@ -27,7 +27,7 @@ model Animal {
   weight    Float
   age       Int
   ownerId   Int
-  owner     User     @relation(fields: [ownerId], references: [id])
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   photos    Photo[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
