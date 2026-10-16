@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     // Envia para o Vercel Blob Storage
     const filename = safeJpegName(animal.tag);
     const blob = await put(filename, buffer, {
-      access: "public",
+      access: "private",
       contentType: "image/jpeg",
     });
 

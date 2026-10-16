@@ -12,7 +12,10 @@
 
 import { useState } from 'react';
 import { Trash2, ImageOff, ZoomIn } from 'lucide-react';
-import { Photo, filePathToUrl } from '@/lib/types';
+import { Photo } from '@/lib/types';
+
+// Rota proxy autenticada — não expõe a URL raw do Vercel Blob privado
+function photoUrl(id: string) { return `/api/photos/${id}`; }
 
 interface PhotoGridProps {
   photos: Photo[];
@@ -33,7 +36,7 @@ function PhotoCard({
 }) {
   const [loaded, setLoaded] = useState(false);
   const [errored, setErrored] = useState(false);
-  const url = filePathToUrl(photo.filePath);
+  const url = photoUrl(photo.id);
 
   return (
     <div
@@ -47,12 +50,8 @@ function PhotoCard({
         }
       }}
       aria-label={`Ver foto ${index + 1}`}
-      className="
-        relative aspect-[3/4] bg-slate-100 rounded-2xl overflow-hidden shadow-sm
-        border border-slate-200/80 group cursor-pointer select-none
-        hover:shadow-md hover:border-emerald-300 transition-all duration-200
-        active:scale-[0.98]
-      "
+      className="relative aspect-[3/4] rounded-2xl overflow-hidden cursor-pointer select-none group active:scale-[0.98] transition-all"
+      style={{ background: 'var(--color-surface-2)', border: '1.5px solid var(--color-border)' }}
     >
       {/* Skeleton enquanto carrega */}
       {!loaded && !errored && (
@@ -122,13 +121,14 @@ function PhotoCard({
 export default function PhotoGrid({ photos, onDelete, onSelect }: PhotoGridProps) {
   if (photos.length === 0) {
     return (
-      <div className="col-span-full py-16 text-center text-slate-400 bg-white border border-dashed border-slate-200 rounded-2xl flex flex-col items-center gap-3">
-        <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-300">
-          <ImageOff className="w-7 h-7" />
-        </div>
+      <div
+        className="col-span-full py-16 text-center flex flex-col items-center gap-3"
+        style={{ border: '2px dashed var(--color-border)', borderRadius: 14 }}
+      >
+        <span className="text-4xl opacity-30">🐄</span>
         <div>
-          <p className="text-sm font-semibold text-slate-600">Nenhuma foto cadastrada ainda</p>
-          <p className="text-xs text-slate-400 mt-0.5">Use o botão de captura para registrar a primeira imagem.</p>
+          <p className="text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Nenhuma foto cadastrada</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>Use o botão de captura para registrar a primeira imagem.</p>
         </div>
       </div>
     );
