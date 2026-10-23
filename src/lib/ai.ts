@@ -55,7 +55,7 @@ function resolveModelPath(): string | null {
   ];
 
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
+    if (fs.existsSync(/*turbopackIgnore: true*/ candidate)) {
       return candidate;
     }
   }
@@ -87,33 +87,25 @@ export async function initModel(): Promise<{ session: any; ort: any } | null> {
 
 /**
  * Calibra a confiança bruta de detecção da classe `Back` do YOLOv8 (0..1)
- * para a pontuação de qualidade do enquadramento apresentada ao operador (0% a 100%).
+ * para a porcentagem de Confiança (0.0% a 100.0%) apresentada ao operador.
+ * Utiliza mapeamento linear direto para refletir com máxima precisão
+ * a certeza estatística da rede neural sem achatamentos artificiais.
  */
 const INFERENCE_WIDTH = 512;
 const INFERENCE_HEIGHT = 512;
 
 export function calibrateYoloScore(rawConf: number): number {
-  if (rawConf <= 0.05) {
-    return Math.round((rawConf / 0.05) * 5 * 10) / 10;
-  }
-  if (rawConf < 0.20) {
-    const p = (rawConf - 0.05) / 0.15;
-    return Math.round((5 + p * 25) * 10) / 10;
-  }
-  if (rawConf < 0.45) {
-    const p = (rawConf - 0.20) / 0.25;
-    return Math.round((30 + p * 35) * 10) / 10;
-  }
-  const p = Math.min(1.0, (rawConf - 0.45) / 0.45);
-  return Math.round((65 + p * 33) * 10) / 10;
+  if (rawConf <= 0) return 0;
+  if (rawConf >= 1.0) return 100;
+  return Math.round(rawConf * 1000) / 10;
 }
 
 function buildFeedback(score: number): string {
   if (score >= 70) {
-    return "Enquadramento excelente! Garupa e pinças anatômicas bem definidas.";
+    return "Enquadramento excelente! Traseira e garupa bovina identificadas com alta precisão.";
   }
   if (score >= 40) {
-    return "Enquadramento aceitável. Traseira bovina identificada.";
+    return "Enquadramento aceitável. Traseira bovina reconhecida pelo modelo.";
   }
   return "Baixa confiança para traseira bovina. Aproxime (1m a 1,5m) e centralize a garupa.";
 }
@@ -161,7 +153,9 @@ async function fallbackVisionScore(imageBuffer: Buffer): Promise<RearDetectionRe
 }
 
 /**
- * Executa a análise da imagem através do YOLO ONNX Dinâmico (NodeNext/ESM).
+ * Executa a análise da imagem através do YOLO ONNX (NodeNext/ESM).
+ * Preserva o aspect ratio anatômico através de Letterboxing padrão YOLO (contain + cinza 114),
+ * evitando deformações que degradavam drasticamente a confiança de detecção da garupa.
  */
 export async function analyzeRearImage(imageBuffer: Buffer): Promise<RearDetectionResult> {
   const loaded = await initModel();
@@ -172,21 +166,26 @@ export async function analyzeRearImage(imageBuffer: Buffer): Promise<RearDetecti
   const { session: sess, ort } = loaded;
 
   try {
-    // 1. Carregar e redimensionar para o tamanho ótimo de inferência (512x512)
-    const { data } = await sharp(imageBuffer)
+    // 1. Carregar, orientar EXIF e aplicar letterbox padrão YOLO para 512x512
+    const { data, info } = await sharp(imageBuffer)
       .rotate()
-      .resize(INFERENCE_WIDTH, INFERENCE_HEIGHT, { fit: "fill" })
+      .resize(INFERENCE_WIDTH, INFERENCE_HEIGHT, {
+        fit: "contain",
+        background: { r: 114, g: 114, b: 114 },
+      })
       .removeAlpha()
+      .toColorspace("srgb")
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    // 2. Converter buffer HWC para Tensor BCHW (Normalização [0, 1])
+    // 2. Converter buffer HWC para Tensor BCHW normalizado [0, 1]
     const imageChannels = 3;
-    const float32Data = new Float32Array(INFERENCE_WIDTH * INFERENCE_HEIGHT * imageChannels);
+    const totalPixels = INFERENCE_WIDTH * INFERENCE_HEIGHT;
+    const float32Data = new Float32Array(totalPixels * imageChannels);
 
     for (let c = 0; c < imageChannels; c++) {
-      for (let i = 0; i < INFERENCE_WIDTH * INFERENCE_HEIGHT; i++) {
-        float32Data[c * INFERENCE_WIDTH * INFERENCE_HEIGHT + i] = data[i * imageChannels + c] / 255.0;
+      for (let i = 0; i < totalPixels; i++) {
+        float32Data[c * totalPixels + i] = data[i * imageChannels + c] / 255.0;
       }
     }
 
@@ -205,7 +204,7 @@ export async function analyzeRearImage(imageBuffer: Buffer): Promise<RearDetecti
     let maxConf = 0;
     let bestIdx = 0;
 
-    // Linha 4 guarda o score da classe 'Back'
+    // Linha 4 guarda o score da classe 'Back' (traseira bovina)
     for (let i = 0; i < numAnchors; i++) {
       const score = outputData[4 * numAnchors + i];
       if (score > maxConf) {

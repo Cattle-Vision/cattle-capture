@@ -267,9 +267,20 @@ export async function POST(request: Request, context: Context) {
         },
       });
 
+      if (photo.animal?.id) {
+        await prisma.animal
+          .update({
+            where: { id: photo.animal.id },
+            data: { updatedAt: new Date() },
+          })
+          .catch(() => {});
+      }
+
       return NextResponse.json({
         success: true,
-        message: `Score recalculado com sucesso: ${Math.round(analysis.score)}%!`,
+        message: `Confiança recalculada com sucesso: ${Math.round(analysis.score)}%!`,
+        newScore: analysis.score,
+        score: analysis.score,
         photo: updated,
         analysis,
       });

@@ -726,13 +726,13 @@ export default function AdminPage() {
                                 <td className="px-5 py-3.5">
                                   {score !== null ? (
                                     <span
-                                      className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full ${
+                                      className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-md ${
                                         score >= 45
                                           ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
                                           : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                                       }`}
                                     >
-                                      <Sparkles className="w-3 h-3" />
+                                      <Activity className="w-3 h-3" />
                                       {score}%
                                     </span>
                                   ) : (

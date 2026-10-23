@@ -86,7 +86,12 @@ export default function PhotoLightbox({ photos, initialIndex, onClose, onPhotoRe
       const res = await fetch(`/api/photos/${currentPhoto.id}/recalibrate`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Falha ao recalcular');
-      const updatedScore = data.newScore;
+      const updatedScore =
+        typeof data.newScore === 'number'
+          ? data.newScore
+          : typeof data.score === 'number'
+          ? data.score
+          : data.photo?.score ?? currentPhoto.score;
       setLocalPhotos((prev) =>
         prev.map((p, idx) => (idx === currentIndex ? { ...p, score: updatedScore } : p))
       );

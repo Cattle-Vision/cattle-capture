@@ -138,13 +138,20 @@ export async function readPhotoBuffer(
   if (!filePath) return null;
 
   // 1. Data URI embutido no banco (`data:image/jpeg;base64,...`)
+  // Utiliza split por vírgula e sanitização de whitespace para máxima resiliência com Postgres TEXT
   if (filePath.startsWith("data:")) {
-    const match = filePath.match(/^data:([^;]+);base64,(.+)$/);
-    if (!match) return null;
-    return {
-      contentType: match[1] || "image/jpeg",
-      buffer: Buffer.from(match[2], "base64"),
-    };
+    const commaIdx = filePath.indexOf(",");
+    if (commaIdx !== -1) {
+      const header = filePath.slice(0, commaIdx);
+      const mimeMatch = header.match(/^data:([^;]+)/);
+      const contentType = mimeMatch ? mimeMatch[1] : "image/jpeg";
+      const cleanBase64 = filePath.slice(commaIdx + 1).replace(/\s+/g, "");
+      return {
+        contentType,
+        buffer: Buffer.from(cleanBase64, "base64"),
+      };
+    }
+    return null;
   }
 
   // 2. URL do Vercel Blob Storage (`https://...blob.vercel-storage.com/...`)
@@ -152,10 +159,14 @@ export async function readPhotoBuffer(
     const isPrivateUrl = filePath.includes(".private.blob.vercel-storage.com");
     const primaryAccess = isPrivateUrl ? "private" : "public";
     const secondaryAccess = isPrivateUrl ? "public" : "private";
+    const blobToken = process.env.BLOB_READ_WRITE_TOKEN?.trim();
 
     for (const accessMode of [primaryAccess, secondaryAccess] as const) {
       try {
-        const result = await get(filePath, { access: accessMode });
+        const result = await get(filePath, {
+          access: accessMode,
+          token: blobToken,
+        });
         if (result && result.statusCode === 200 && result.stream) {
           const arrayBuffer = await new Response(result.stream as unknown as ReadableStream).arrayBuffer();
           return {
@@ -168,9 +179,13 @@ export async function readPhotoBuffer(
       }
     }
 
-    // Fallback fetch direto (para blobs públicos quando sem token OIDC local)
+    // Fallback com fetch direto injetando Authorization Bearer caso o SDK falhe
     try {
-      const res = await fetch(filePath);
+      const headers: Record<string, string> = {};
+      if (blobToken) {
+        headers["Authorization"] = `Bearer ${blobToken}`;
+      }
+      const res = await fetch(filePath, { headers });
       if (res.ok) {
         const arrayBuffer = await res.arrayBuffer();
         return {
@@ -200,11 +215,11 @@ export async function readPhotoBuffer(
     }
   }
 
-  // 4. Armazenamento local legado (`/storage/uploads/...`)
+  // 4. Armazenamento local legado (`/storage/uploads/...`, `public/...`, etc.)
   const localPath = resolveStoredFile(filePath);
   if (!localPath) return null;
   try {
-    const buffer = await fs.readFile(localPath);
+    const buffer = await fs.readFile(/*turbopackIgnore: true*/ localPath);
     return { buffer, contentType: "image/jpeg" };
   } catch {
     return null;
@@ -213,10 +228,24 @@ export async function readPhotoBuffer(
 
 export function resolveStoredFile(filePath: string): string | null {
   if (filePath.startsWith("data:") || filePath.startsWith("http")) return null;
-  const relative = filePath.replace(/^\/?storage[\\/]?/, "");
-  const absolute = path.resolve(STORAGE_ROOT, relative);
-  if (!absolute.startsWith(path.resolve(STORAGE_ROOT))) return null;
-  return absolute;
+  const clean = filePath.replace(/^[/\\]+/, "");
+  const candidates = [
+    path.resolve(STORAGE_ROOT, clean.replace(/^storage[/\\]?/, "")),
+    path.resolve(UPLOADS_DIR, path.basename(clean)),
+    path.resolve(/*turbopackIgnore: true*/ process.cwd(), clean),
+    path.resolve(/*turbopackIgnore: true*/ process.cwd(), "public", clean),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      if (require("fs").existsSync(/*turbopackIgnore: true*/ candidate)) {
+        return candidate;
+      }
+    } catch {
+      // Ignora erro de verificação de filesystem
+    }
+  }
+  return null;
 }
 
 export async function ensureUploadsDir() {

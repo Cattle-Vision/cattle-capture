@@ -141,19 +141,18 @@ export async function POST(request: Request, context: Context) {
 
   const { slug = [] } = await context.params;
 
-  // 1. POST /api/animals/recalibrate (recalibra todo o rebanho do usuário)
+  // 1. POST /api/animals/recalibrate (recalibra todo o rebanho do usuário ou sistema se admin)
   if (slug.length === 1 && slug[0] === "recalibrate") {
-    const { searchParams } = new URL(request.url);
-    const scopeAll = searchParams.get("all") === "true";
     const isAdmin = session.user.role === "ADMIN";
     const userId = Number(session.user.id);
 
-    const whereClause = isAdmin && scopeAll ? {} : { animal: { ownerId: userId } };
+    // Se admin, recalibra fotos de todo o rebanho; se usuário comum, restringe aos seus animais
+    const whereClause = isAdmin ? {} : { animal: { ownerId: userId } };
 
     const photos = await prisma.photo.findMany({
       where: whereClause,
       include: {
-        animal: { select: { tag: true } },
+        animal: { select: { id: true, tag: true } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -168,12 +167,16 @@ export async function POST(request: Request, context: Context) {
     }
 
     let updatedCount = 0;
+    const affectedAnimalIds = new Set<string>();
     const results: Array<{ id: string; tag?: string; oldScore: number | null; newScore: number }> = [];
 
     for (const photo of photos) {
       try {
         const photoData = await readPhotoBuffer(photo.filePath);
-        if (!photoData?.buffer) continue;
+        if (!photoData?.buffer) {
+          console.warn(`[recalibrate] Buffer indisponível para foto ${photo.id}`);
+          continue;
+        }
 
         const analysis = await analyzeRearImage(photoData.buffer);
 
@@ -181,6 +184,10 @@ export async function POST(request: Request, context: Context) {
           where: { id: photo.id },
           data: { score: analysis.score },
         });
+
+        if (photo.animal?.id) {
+          affectedAnimalIds.add(photo.animal.id);
+        }
 
         updatedCount++;
         results.push({
@@ -192,6 +199,13 @@ export async function POST(request: Request, context: Context) {
       } catch (err) {
         console.warn(`[recalibrate] Erro ao recalcular foto ${photo.id}:`, err);
       }
+    }
+
+    if (affectedAnimalIds.size > 0) {
+      await prisma.animal.updateMany({
+        where: { id: { in: Array.from(affectedAnimalIds) } },
+        data: { updatedAt: new Date() },
+      }).catch(() => {});
     }
 
     return NextResponse.json({
@@ -246,7 +260,10 @@ export async function POST(request: Request, context: Context) {
     for (const photo of animal.photos) {
       try {
         const photoData = await readPhotoBuffer(photo.filePath);
-        if (!photoData?.buffer) continue;
+        if (!photoData?.buffer) {
+          console.warn(`[recalibrate/animal] Buffer indisponível para foto ${photo.id}`);
+          continue;
+        }
 
         const analysis = await analyzeRearImage(photoData.buffer);
 
@@ -265,6 +282,11 @@ export async function POST(request: Request, context: Context) {
         console.warn(`[recalibrate/animal] Erro ao recalcular foto ${photo.id}:`, err);
       }
     }
+
+    await prisma.animal.update({
+      where: { id: animalId },
+      data: { updatedAt: new Date() },
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,
