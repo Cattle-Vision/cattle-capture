@@ -47,26 +47,28 @@ export function MobileNav({ isAdmin = false }: { isAdmin?: boolean }) {
   return (
     <nav
       aria-label="Navegação principal mobile"
-      className="sm:hidden fixed bottom-0 left-0 right-0 z-30 glass-header border-t border-b-0 px-2 pt-1.5 flex items-center justify-around"
-      style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+      className="sm:hidden fixed bottom-0 left-0 right-0 z-30 glass-header border-t border-b-0 px-2 pt-1 flex items-center justify-center"
+      style={{ paddingBottom: "max(0.35rem, env(safe-area-inset-bottom))" }}
     >
-      {items.map((item) => {
-        const Icon = item.icon;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`flex flex-col items-center justify-center py-1.5 px-3 rounded-xl min-w-[68px] transition ${
-              item.active
-                ? "text-emerald-500 font-extrabold"
-                : "text-theme-muted hover:text-theme-primary font-semibold"
-            }`}
-          >
-            <Icon className={`w-5 h-5 ${item.active ? "stroke-[2.5]" : "stroke-[2]"}`} />
-            <span className="text-[11px] mt-0.5 tracking-tight">{item.label}</span>
-          </Link>
-        );
-      })}
+      <div className="w-full max-w-md flex items-center justify-around">
+        {items.map((item) => {
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-md transition ${
+                item.active
+                  ? "text-emerald-600 dark:text-emerald-400 font-bold"
+                  : "text-theme-muted hover:text-theme-primary font-medium"
+              }`}
+            >
+              <Icon className={`w-4 h-4 ${item.active ? "stroke-[2.2]" : "stroke-[1.75]"}`} />
+              <span className="text-[10px] mt-0.5 tracking-tight leading-none">{item.label}</span>
+            </Link>
+          );
+        })}
+      </div>
     </nav>
   );
 }

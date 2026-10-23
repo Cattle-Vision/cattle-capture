@@ -28,7 +28,7 @@ import {
   Loader2,
   X,
   Check,
-  Sparkles,
+  Activity,
   AlertTriangle,
 } from "lucide-react";
 import PhotoGrid from "@/components/PhotoGrid";
@@ -196,7 +196,7 @@ export default function AnimalProfilePage() {
             : prev
         );
         toast(
-          `Foto enviada com Score IA de ${Math.round(
+          `Foto enviada com Confiança IA de ${Math.round(
             data.photo.score ?? pendingPhoto.scoreResult?.score ?? 0
           )}%!`,
           "success"
@@ -305,7 +305,7 @@ export default function AnimalProfilePage() {
         );
       }
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Erro ao recalcular scores do animal", "error");
+      toast(err instanceof Error ? err.message : "Erro ao recalcular confiança do animal", "error");
     } finally {
       setRecalibratingAnimal(false);
     }
@@ -323,7 +323,7 @@ export default function AnimalProfilePage() {
           }
         : prev
     );
-    toast(`Score da foto atualizado para ${Math.round(newScore)}%!`, "success");
+    toast(`Confiança da foto atualizada para ${Math.round(newScore)}%!`, "success");
   };
 
   if (loading) return <PageSkeleton />;
@@ -359,20 +359,20 @@ export default function AnimalProfilePage() {
         onChange={handleSelectFromGallery}
       />
 
-      {/* Header */}
+      {/* Header Compacto */}
       <header className="glass-header sticky top-0 z-20">
-        <div className="max-w-4xl mx-auto px-3 sm:px-4 h-14 sm:h-16 flex items-center justify-between gap-1 sm:gap-2">
-          <div className="flex items-center gap-1 sm:gap-2.5 min-w-0">
+        <div className="max-w-4xl mx-auto px-3 sm:px-4 h-12 sm:h-14 flex items-center justify-between gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
             <button
               onClick={() => router.push("/dashboard")}
               aria-label="Voltar ao painel"
-              className="p-1.5 sm:p-2 rounded-xl text-theme-secondary hover:bg-theme-surface-2 shrink-0"
+              className="p-1.5 sm:p-2 rounded-md text-theme-secondary hover:bg-theme-surface-2 shrink-0"
             >
-              <ArrowLeft className="w-5 h-5" />
+              <ArrowLeft className="w-4 h-4" />
             </button>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2">
-                <h1 className="text-sm sm:text-base font-extrabold text-theme-primary truncate max-w-[100px] xs:max-w-[170px] sm:max-w-xs">
+                <h1 className="text-sm sm:text-base font-bold text-theme-primary truncate max-w-[100px] xs:max-w-[170px] sm:max-w-xs">
                   {label}
                 </h1>
                 <span className="font-mono-tag text-[10px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 rounded-md bg-slate-900 dark:bg-emerald-950 text-white dark:text-emerald-300 shrink-0">
@@ -385,12 +385,12 @@ export default function AnimalProfilePage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0">
-            <ThemeToggle className="p-1.5 sm:p-2.5" />
+          <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+            <ThemeToggle className="p-1.5 sm:p-2" />
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="p-1.5 sm:p-2.5 rounded-xl text-theme-secondary hover:bg-theme-surface-2"
+              className="p-1.5 sm:p-2 rounded-md text-theme-secondary hover:bg-theme-surface-2"
               title="Editar dados do animal"
             >
               <Pencil className="w-4 h-4" />
@@ -398,7 +398,7 @@ export default function AnimalProfilePage() {
             <button
               type="button"
               onClick={handleDeleteAnimal}
-              className="p-1.5 sm:p-2.5 rounded-xl text-theme-secondary hover:text-red-500 hover:bg-red-500/10"
+              className="p-1.5 sm:p-2 rounded-md text-theme-secondary hover:text-red-500 hover:bg-red-500/10"
               title="Excluir animal"
             >
               <Trash2 className="w-4 h-4" />
@@ -407,13 +407,13 @@ export default function AnimalProfilePage() {
         </div>
       </header>
 
-      <main className="flex-1 p-4 sm:p-6 max-w-4xl mx-auto w-full flex flex-col gap-6 pb-28 sm:pb-10">
+      <main className="flex-1 p-3 sm:p-6 max-w-4xl mx-auto w-full flex flex-col gap-5 pb-20 sm:pb-8">
         {/* Card Zootécnico */}
-        <div className="card p-5 sm:p-6">
+        <div className="card p-4 sm:p-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
             <div>
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full mb-2">
-                <Sparkles className="w-3 h-3" />
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md mb-2">
+                <Activity className="w-3 h-3" />
                 Ficha Zootécnica · ICC
               </span>
               <h2 className="text-xl font-extrabold text-theme-primary">
@@ -458,7 +458,7 @@ export default function AnimalProfilePage() {
                 Galeria do Dataset · Região Posterior
               </h3>
               <p className="text-xs text-theme-secondary mt-0.5">
-                Clique em qualquer imagem para ampliar em tela cheia ou verificar o Score IA
+                Clique em qualquer imagem para ampliar em tela cheia ou verificar a Confiança IA
               </p>
             </div>
 
@@ -467,16 +467,16 @@ export default function AnimalProfilePage() {
                 type="button"
                 onClick={handleRecalibrateAnimal}
                 disabled={recalibratingAnimal}
-                className="btn-secondary py-2 px-3 text-xs flex items-center gap-1.5 shrink-0 border-emerald-500/30 hover:border-emerald-500/50"
-                title="Recalcular todos os scores das fotos desta vaca com a IA local calibrada"
+                className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5 shrink-0 border-emerald-500/30 hover:border-emerald-500/50"
+                title="Recalcular a confiança de todas as fotos deste animal com a IA local calibrada"
               >
                 {recalibratingAnimal ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
                 ) : (
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+                  <Activity className="w-3.5 h-3.5 text-emerald-500" />
                 )}
                 <span>
-                  {recalibratingAnimal ? "Recalculando…" : "Recalcular Scores da Vaca"}
+                  {recalibratingAnimal ? "Recalculando…" : "Recalcular Confiança"}
                 </span>
               </button>
             )}
@@ -492,47 +492,47 @@ export default function AnimalProfilePage() {
 
       {/* Barra Inferior Mobile */}
       <div
-        className="sm:hidden fixed bottom-0 left-0 right-0 bg-theme-surface/95 backdrop-blur-md border-t border-theme p-3 z-20 flex gap-2.5"
-        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+        className="sm:hidden fixed bottom-0 left-0 right-0 bg-theme-surface/95 backdrop-blur-md border-t border-theme p-2.5 z-20 flex gap-2"
+        style={{ paddingBottom: "max(0.6rem, env(safe-area-inset-bottom))" }}
       >
         <button
           type="button"
           disabled={uploading}
           onClick={() => fileInputRef.current?.click()}
-          className="btn-secondary flex-1 py-3 text-xs"
+          className="btn-secondary flex-1 py-2.5 text-xs"
         >
           <Upload className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          Galeria (com Score)
+          Galeria
         </button>
-        <Link href={cameraUrl} className="btn-primary flex-1 py-3 text-xs">
+        <Link href={cameraUrl} className="btn-primary flex-1 py-2.5 text-xs">
           <Camera className="w-4 h-4" />
           Câmera IA
         </Link>
       </div>
 
-      {/* Modal de Pré-Avaliação de Score IA Antes do Upload */}
+      {/* Modal de Pré-Avaliação de Confiança IA Antes do Upload */}
       {pendingPhoto && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
           <div className="card max-w-md w-full overflow-hidden animate-scale-in">
-            <div className="px-5 py-4 border-b border-theme flex items-center justify-between">
+            <div className="px-4 py-3 border-b border-theme flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-emerald-500" />
-                <h3 className="font-extrabold text-sm text-theme-primary">
-                  Avaliação de Score IA Antes do Upload
+                <Activity className="w-4 h-4 text-emerald-500" />
+                <h3 className="font-bold text-sm text-theme-primary">
+                  Avaliação de Confiança Pré-Upload
                 </h3>
               </div>
               <button
                 type="button"
                 disabled={uploading}
                 onClick={() => setPendingPhoto(null)}
-                className="p-1.5 rounded-lg text-theme-muted hover:text-theme-primary"
+                className="p-1 rounded-md text-theme-muted hover:text-theme-primary"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-5 flex flex-col gap-4">
-              <div className="aspect-[4/3] w-full rounded-xl overflow-hidden bg-black border border-theme relative">
+            <div className="p-4 flex flex-col gap-3.5">
+              <div className="aspect-[4/3] w-full rounded-lg overflow-hidden bg-black border border-theme relative">
                 <img
                   src={pendingPhoto.previewUrl}
                   alt="Prévia da foto selecionada"
@@ -540,33 +540,33 @@ export default function AnimalProfilePage() {
                 />
               </div>
 
-              {/* Card de Score Pré-Upload */}
-              <div className="rounded-xl p-4 bg-theme-surface-2 border border-theme">
+              {/* Card de Confiança Pré-Upload */}
+              <div className="rounded-lg p-3 bg-theme-surface-2 border border-theme">
                 {pendingPhoto.evaluating ? (
                   <div className="flex items-center gap-3 py-2">
                     <Loader2 className="w-5 h-5 animate-spin text-emerald-500 shrink-0" />
                     <div>
-                      <p className="text-xs font-extrabold text-theme-primary">
+                      <p className="text-xs font-bold text-theme-primary">
                         Analisando foto com Inteligência Artificial…
                       </p>
                       <p className="text-[11px] text-theme-secondary">
-                        Calculando score de enquadramento e nitidez antes de enviar
+                        Calculando confiança de enquadramento e nitidez antes de enviar
                       </p>
                     </div>
                   </div>
                 ) : pendingPhoto.scoreResult ? (
-                  <div className="space-y-2.5">
+                  <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <div>
                         <span className="text-[10px] font-bold uppercase tracking-wider text-theme-muted block">
-                          Score IA Calculado
+                          Confiança IA Calculada
                         </span>
                         <span className="text-xs font-bold text-theme-primary">
                           {pendingPhoto.scoreResult.feedback}
                         </span>
                       </div>
                       <span
-                        className={`text-xl font-black px-3 py-1 rounded-xl ${
+                        className={`text-lg font-black px-2.5 py-0.5 rounded-md ${
                           pendingPhoto.scoreResult.score >= 70
                             ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
                             : pendingPhoto.scoreResult.score >= 45
@@ -578,7 +578,7 @@ export default function AnimalProfilePage() {
                       </span>
                     </div>
 
-                    <div className="w-full h-2 rounded-full bg-theme-surface overflow-hidden">
+                    <div className="w-full h-1.5 rounded-sm bg-theme-surface overflow-hidden">
                       <div
                         className={`h-full transition-all duration-300 ${
                           pendingPhoto.scoreResult.score >= 70

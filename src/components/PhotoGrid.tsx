@@ -11,7 +11,7 @@
  */
 
 import { useState } from 'react';
-import { Trash2, ImageOff, ZoomIn, Sparkles, Calendar } from 'lucide-react';
+import { Trash2, ImageOff, ZoomIn, Activity, Calendar, Camera } from 'lucide-react';
 import { Photo, getPhotoUrl } from '@/lib/types';
 
 interface PhotoGridProps {
@@ -59,7 +59,7 @@ function PhotoCard({
         }
       }}
       aria-label={`Ver foto ${index + 1}`}
-      className="relative aspect-[3/4] rounded-2xl overflow-hidden cursor-pointer select-none group active:scale-[0.99] transition-all bg-theme-surface-2 border border-theme shadow-xs hover:shadow-md hover:border-emerald-500/60"
+      className="relative aspect-[3/4] rounded-lg overflow-hidden cursor-pointer select-none group active:scale-[0.99] transition-all bg-theme-surface-2 border border-theme shadow-xs hover:border-emerald-500/60"
     >
       {/* Skeleton enquanto carrega */}
       {!loaded && !errored && <div className="absolute inset-0 skeleton" />}
@@ -91,17 +91,17 @@ function PhotoCard({
       {/* Gradiente inferior para legibilidade dos metadados */}
       <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/80 via-black/35 to-transparent pointer-events-none" />
 
-      {/* Badge de Score IA no topo esquerdo */}
+      {/* Badge de Confiança IA no topo esquerdo */}
       {hasScore && (
         <div
-          className={`absolute top-2.5 left-2.5 z-10 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold backdrop-blur-md shadow-xs pointer-events-none ${
+          className={`absolute top-2 left-2 z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold backdrop-blur-md shadow-xs pointer-events-none ${
             isHighScore
-              ? 'bg-emerald-500/90 text-white'
-              : 'bg-amber-500/90 text-white'
+              ? 'bg-emerald-600/90 text-white'
+              : 'bg-amber-600/90 text-white'
           }`}
         >
-          <Sparkles className="w-3 h-3" />
-          Score {Math.round(photo.score as number)}%
+          <Activity className="w-3 h-3" />
+          Confiança {Math.round(photo.score as number)}%
         </div>
       )}
 
@@ -148,9 +148,9 @@ export default function PhotoGrid({
 }: PhotoGridProps) {
   if (photos.length === 0) {
     return (
-      <div className="col-span-full py-16 px-4 text-center flex flex-col items-center gap-3 bg-theme-surface border-2 border-dashed border-theme rounded-2xl">
-        <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-2xl">
-          📷
+      <div className="col-span-full py-14 px-4 text-center flex flex-col items-center gap-3 bg-theme-surface border border-dashed border-theme rounded-lg">
+        <div className="w-12 h-12 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+          <Camera className="w-6 h-6 stroke-[1.75]" />
         </div>
         <div>
           <p className="text-sm font-bold text-theme-primary">

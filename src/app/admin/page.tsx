@@ -26,7 +26,7 @@ import {
   ImageIcon,
   Loader2,
   Search,
-  Sparkles,
+  Activity,
   Camera,
   Eye,
   ShieldCheck,
@@ -195,7 +195,7 @@ export default function AdminPage() {
   const handleRecalibrateScores = async () => {
     if (recalibrating) return;
     const confirmMsg =
-      'Deseja recalcular os scores de todas as fotos do banco de dados com a IA calibrada? Isso atualizará os valores de confiança no banco.';
+      'Deseja recalcular a confiança de todas as fotos do banco de dados com a IA calibrada? Isso atualizará os valores de confiança no banco.';
     if (!window.confirm(confirmMsg)) return;
 
     setRecalibrating(true);
@@ -203,7 +203,7 @@ export default function AdminPage() {
       const res = await fetch('/api/admin/recalibrate', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Falha ao recalcular scores');
+        throw new Error(data.error || 'Falha ao recalcular confiança');
       }
 
       toast(
@@ -220,7 +220,7 @@ export default function AdminPage() {
       }
     } catch (err) {
       toast(
-        err instanceof Error ? err.message : 'Erro ao recalcular scores da IA',
+        err instanceof Error ? err.message : 'Erro ao recalcular confiança da IA',
         'error'
       );
     } finally {
@@ -353,47 +353,47 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-theme-bg text-theme-primary flex flex-col pb-24 sm:pb-8">
-      {/* Header */}
+    <div className="min-h-[100dvh] bg-theme-bg text-theme-primary flex flex-col pb-20 sm:pb-8">
+      {/* Header Compacto */}
       <header className="glass-header sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-2">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-12 sm:h-14 flex items-center justify-between gap-1.5 sm:gap-2">
           <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
             <Link
               href="/dashboard"
-              className="p-1.5 sm:p-2 rounded-xl text-theme-secondary hover:bg-theme-surface-2 transition shrink-0"
+              className="p-1.5 sm:p-2 rounded-md text-theme-secondary hover:bg-theme-surface-2 transition shrink-0"
               aria-label="Voltar ao Dashboard"
             >
-              <ArrowLeft className="w-5 h-5" />
+              <ArrowLeft className="w-4 h-4" />
             </Link>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2">
-                <h1 className="text-xs sm:text-base font-extrabold text-theme-primary truncate max-w-[125px] xs:max-w-[200px] sm:max-w-none">
+                <h1 className="text-xs sm:text-sm font-bold text-theme-primary truncate max-w-[125px] xs:max-w-[200px] sm:max-w-none">
                   Central Administrativa
                 </h1>
-                <span className="inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
+                <span className="inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
                   <ShieldCheck className="w-3 h-3" />
                   ADMIN
                 </span>
               </div>
-              <p className="text-[11px] text-theme-muted truncate hidden sm:block">
+              <p className="text-[10px] sm:text-[11px] text-theme-muted truncate hidden sm:block">
                 Curadoria global do dataset ICC e gestão de permissões
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <ThemeToggle className="p-1.5 sm:p-2.5" />
+            <ThemeToggle className="p-1.5 sm:p-2" />
             <button
               onClick={handleDownload}
               disabled={downloading || stats.totalPhotos === 0}
-              className="btn-primary py-2 px-2.5 sm:px-4 text-xs sm:text-sm shrink-0 flex items-center gap-1.5"
+              className="btn-primary py-1.5 px-2.5 sm:px-3 text-xs shrink-0 flex items-center gap-1.5"
               title="Exportar dataset completo em ZIP"
               aria-label="Exportar dataset ZIP"
             >
               {downloading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <Download className="w-4 h-4" />
+                <Download className="w-3.5 h-3.5" />
               )}
               <span className="hidden sm:inline">
                 {downloading ? 'Empacotando…' : 'Exportar ZIP'}
@@ -403,12 +403,12 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-6 py-6">
+      <main className="flex-1 max-w-6xl mx-auto w-full px-3 sm:px-6 py-5">
         {loading ? (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
               {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-24 skeleton rounded-2xl" />
+                <div key={i} className="h-24 skeleton rounded-lg" />
               ))}
             </div>
             <div className="flex flex-col gap-3">
@@ -447,7 +447,7 @@ export default function AdminPage() {
 
               <div className="card p-4">
                 <p className="text-xs font-bold uppercase tracking-wider text-theme-muted">
-                  Score Médio IA
+                  Confiança Média IA
                 </p>
                 <p className="text-2xl font-extrabold text-theme-primary mt-1">
                   {stats.avgScore !== null ? `${stats.avgScore}%` : '—'}
@@ -507,16 +507,16 @@ export default function AdminPage() {
                   type="button"
                   onClick={handleRecalibrateScores}
                   disabled={recalibrating || stats.totalPhotos === 0}
-                  className="btn-secondary py-2.5 px-4 text-xs sm:text-sm flex items-center justify-center gap-2 border-emerald-500/30 hover:border-emerald-500/50 w-full sm:w-auto"
-                  title="Recalcular scores de confiança da IA de todas as fotos no banco de dados"
+                  className="btn-secondary py-2 px-3.5 text-xs sm:text-sm flex items-center justify-center gap-1.5 border-emerald-500/30 hover:border-emerald-500/50 w-full sm:w-auto"
+                  title="Recalcular confiança da IA de todas as fotos no banco de dados"
                 >
                   {recalibrating ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
                   ) : (
-                    <Sparkles className="w-4 h-4 text-emerald-500" />
+                    <Activity className="w-3.5 h-3.5 text-emerald-500" />
                   )}
                   <span>
-                    {recalibrating ? 'Recalibrando IA…' : 'Recalcular Scores IA'}
+                    {recalibrating ? 'Recalibrando IA…' : 'Recalcular Confiança IA'}
                   </span>
                 </button>
               )}
@@ -641,7 +641,7 @@ export default function AdminPage() {
                             <th className="px-5 py-3.5">Prévia / Brinco</th>
                             <th className="px-5 py-3.5">Zootecnia</th>
                             <th className="px-5 py-3.5">Operador</th>
-                            <th className="px-5 py-3.5">Score IA</th>
+                            <th className="px-5 py-3.5">Confiança IA</th>
                             <th className="px-5 py-3.5">Capturas</th>
                             <th className="px-5 py-3.5 text-right">Ações</th>
                           </tr>

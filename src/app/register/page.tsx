@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2, ArrowLeft, User, Mail, Lock, Eye, EyeOff, Sparkles } from "lucide-react";
+import { Loader2, ArrowLeft, User, Mail, Lock, Eye, EyeOff, ScanLine, AlertTriangle, UserPlus } from "lucide-react";
 import { signIn } from "next-auth/react";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -69,20 +69,20 @@ export default function RegisterPage() {
 
         <div className="relative z-10">
           <Link href="/" className="inline-flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-xl shadow-md">
-              🐄
+            <div className="w-9 h-9 rounded-md bg-emerald-500 flex items-center justify-center text-white shadow-xs">
+              <ScanLine className="w-5 h-5 stroke-[2.2]" />
             </div>
-            <span className="font-extrabold text-xl tracking-tight">
+            <span className="font-bold text-xl tracking-tight">
               Cattle<span className="text-emerald-400">Capture</span>
             </span>
           </Link>
 
           <div className="mt-14">
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full mb-4">
-              <Sparkles className="w-3.5 h-3.5" />
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-md mb-4">
+              <UserPlus className="w-3.5 h-3.5" />
               Novo Operador
             </span>
-            <h1 className="text-3xl font-extrabold leading-tight tracking-tight">
+            <h1 className="text-3xl font-bold leading-tight tracking-tight">
               Comece a catalogar seu rebanho em segundos.
             </h1>
             <p className="mt-4 text-sm text-slate-300 leading-relaxed">
@@ -110,10 +110,10 @@ export default function RegisterPage() {
             </Link>
             <div className="flex items-center gap-2.5">
               <div className="lg:hidden flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-emerald-600 flex items-center justify-center text-sm text-white">
-                  🐄
+                <div className="w-7 h-7 rounded-md bg-emerald-600 flex items-center justify-center text-white">
+                  <ScanLine className="w-4 h-4 stroke-[2.2]" />
                 </div>
-                <span className="font-extrabold text-sm text-theme-primary">
+                <span className="font-bold text-sm text-theme-primary">
                   Cattle<span className="text-emerald-600 dark:text-emerald-400">Capture</span>
                 </span>
               </div>
@@ -121,17 +121,17 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          <div className="card p-6 sm:p-8">
-            <h2 className="text-2xl font-extrabold text-theme-primary tracking-tight mb-1">
+          <div className="card p-5 sm:p-7">
+            <h2 className="text-xl sm:text-2xl font-bold text-theme-primary tracking-tight mb-1">
               Criar conta de operador
             </h2>
-            <p className="text-sm text-theme-secondary mb-6">
+            <p className="text-xs sm:text-sm text-theme-secondary mb-5">
               Preencha seus dados para iniciar a coleta de imagens.
             </p>
 
             {error && (
-              <div className="error-banner mb-5 flex items-center gap-2">
-                <span>⚠️</span>
+              <div className="error-banner mb-4 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
                 <span>{error}</span>
               </div>
             )}

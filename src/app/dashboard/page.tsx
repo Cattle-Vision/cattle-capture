@@ -20,13 +20,15 @@ import {
   ScanLine,
   LogOut,
   Search,
-  Sparkles,
+  Activity,
   Scale,
   Calendar,
   Images,
   ChevronRight,
   Filter,
   Loader2,
+  Layers,
+  SearchX,
 } from "lucide-react";
 import { Animal, getPhotoUrl } from "@/lib/types";
 import { logoutAction } from "@/app/login/actions";
@@ -78,9 +80,9 @@ function AnimalCard({ animal }: { animal: Animal }) {
               onError={() => setImgErr(true)}
             />
           ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-theme-surface-2 text-theme-muted">
-              <span className="text-3xl opacity-60">🐄</span>
-              <span className="text-[11px] font-semibold text-theme-muted">Sem foto</span>
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 bg-theme-surface-2 text-theme-muted">
+              <Layers className="w-8 h-8 opacity-40 stroke-[1.5]" />
+              <span className="text-[11px] font-medium text-theme-muted">Sem foto</span>
             </div>
           )}
 
@@ -88,20 +90,20 @@ function AnimalCard({ animal }: { animal: Animal }) {
           <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/65 to-transparent pointer-events-none" />
 
           {/* Badge Brinco (Monospace) */}
-          <div className="absolute top-2.5 left-2.5 font-mono-tag text-xs font-bold px-2.5 py-1 rounded-lg bg-slate-900/85 text-white backdrop-blur-md shadow-xs tracking-wider">
+          <div className="absolute top-2 left-2 font-mono-tag text-xs font-bold px-2 py-0.5 rounded-md bg-slate-900/85 text-white backdrop-blur-md shadow-xs tracking-wider">
             {animal.tag}
           </div>
 
-          {/* Score IA se disponível */}
+          {/* Confiança IA se disponível */}
           {bestScore !== null && (
-            <div className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/90 text-white backdrop-blur-md shadow-xs">
-              <Sparkles className="w-3 h-3" />
-              Score {bestScore}%
+            <div className="absolute top-2 right-2 inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-600/90 text-white backdrop-blur-md shadow-xs">
+              <Activity className="w-3 h-3" />
+              Confiança {bestScore}%
             </div>
           )}
 
           {/* Contador de fotos */}
-          <div className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full bg-black/65 text-white backdrop-blur-md">
+          <div className="absolute bottom-2 right-2 inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-black/65 text-white backdrop-blur-md">
             <Images className="w-3 h-3 text-emerald-400" />
             {photoCount} {photoCount === 1 ? "foto" : "fotos"}
           </div>
@@ -170,7 +172,7 @@ export default function DashboardPage() {
   const handleRecalibrateHerd = async () => {
     if (recalibratingHerd) return;
     const ok = window.confirm(
-      "Deseja recalcular os scores de todas as fotos dos seus animais com a IA atual calibrada?"
+      "Deseja recalcular a confiança de todas as fotos dos seus animais com a IA atual calibrada?"
     );
     if (!ok) return;
 
@@ -188,7 +190,7 @@ export default function DashboardPage() {
         if (Array.isArray(freshAnimals)) setAnimals(freshAnimals);
       }
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Erro ao recalcular scores", "error");
+      toast(err instanceof Error ? err.message : "Erro ao recalcular confiança", "error");
     } finally {
       setRecalibratingHerd(false);
     }
@@ -246,15 +248,15 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-theme-bg text-theme-primary">
-      {/* Header Glassmorphic */}
+      {/* Header Glassmorphic Compacto */}
       <header className="glass-header sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-2">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-12 sm:h-14 flex items-center justify-between gap-1.5 sm:gap-2">
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white shadow-xs shrink-0">
-              <span className="text-base sm:text-lg">🐄</span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-md bg-emerald-600 flex items-center justify-center text-white shrink-0">
+              <ScanLine className="w-4 h-4 stroke-[2.2]" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-base font-extrabold text-theme-primary truncate">
+              <h1 className="text-sm sm:text-base font-bold text-theme-primary truncate">
                 Cattle<span className="text-emerald-600 dark:text-emerald-400">Capture</span>
               </h1>
               <p className="text-[10px] sm:text-[11px] font-medium text-theme-secondary truncate hidden xs:block">
@@ -265,37 +267,37 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            <ThemeToggle className="p-1.5 sm:p-2.5" />
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            <ThemeToggle className="p-1.5 sm:p-2" />
             {isAdmin && (
               <Link
                 href="/admin"
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition shrink-0"
+                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition shrink-0"
                 title="Central Administrativa"
                 aria-label="Central Administrativa"
               >
-                <ShieldCheck className="w-4 h-4" />
+                <ShieldCheck className="w-3.5 h-3.5" />
                 <span>Admin</span>
               </Link>
             )}
             <Link
               href="/identify"
-              className="hidden sm:inline-flex btn-secondary py-2 px-3.5 text-xs"
+              className="hidden sm:inline-flex btn-secondary py-1.5 px-3 text-xs"
             >
-              <ScanLine className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <ScanLine className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
               Identificar Brinco
             </Link>
             <Link
               href="/animal/new"
-              className="hidden sm:inline-flex btn-primary py-2 px-3.5 text-xs"
+              className="hidden sm:inline-flex btn-primary py-1.5 px-3 text-xs"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-3.5 h-3.5" />
               Novo Animal
             </Link>
             <form action={logoutAction} className="shrink-0">
               <button
                 type="submit"
-                className="p-1.5 sm:p-2.5 rounded-xl text-theme-secondary hover:text-red-500 hover:bg-red-500/10 transition"
+                className="p-1.5 sm:p-2 rounded-md text-theme-secondary hover:text-red-500 hover:bg-red-500/10 transition"
                 title="Sair da conta"
                 aria-label="Sair da conta"
               >
@@ -306,7 +308,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-6 py-6 pb-28 sm:pb-10">
+      <main className="flex-1 max-w-6xl mx-auto w-full px-3 sm:px-6 py-5 pb-20 sm:pb-8">
         {/* KPIs do Rebanho */}
         {!loading && animals.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
@@ -394,16 +396,16 @@ export default function DashboardPage() {
                 type="button"
                 onClick={handleRecalibrateHerd}
                 disabled={recalibratingHerd}
-                className="btn-secondary py-2 px-3 text-xs flex items-center justify-center gap-1.5 shrink-0 border-emerald-500/30 hover:border-emerald-500/50"
-                title="Recalcular scores de todas as fotos do seu rebanho usando a IA calibrada localmente"
+                className="btn-secondary py-1.5 px-3 text-xs flex items-center justify-center gap-1.5 shrink-0 border-emerald-500/30 hover:border-emerald-500/50"
+                title="Recalcular confiança de todas as fotos do seu rebanho usando a IA calibrada localmente"
               >
                 {recalibratingHerd ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
                 ) : (
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+                  <Activity className="w-3.5 h-3.5 text-emerald-500" />
                 )}
                 <span>
-                  {recalibratingHerd ? "Recalculando…" : "Recalcular Scores"}
+                  {recalibratingHerd ? "Recalculando…" : "Recalcular Confiança"}
                 </span>
               </button>
             )}
@@ -418,17 +420,17 @@ export default function DashboardPage() {
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="card py-20 px-6 flex flex-col items-center justify-center gap-4 text-center max-w-lg mx-auto my-6">
-            <div className="w-16 h-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-3xl">
-              🐄
+          <div className="card py-16 px-6 flex flex-col items-center justify-center gap-3 text-center max-w-lg mx-auto my-6">
+            <div className="w-12 h-12 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+              <Layers className="w-6 h-6 text-emerald-600 dark:text-emerald-400 stroke-[1.5]" />
             </div>
             <div>
-              <h2 className="text-lg font-extrabold text-theme-primary">
+              <h2 className="text-base font-bold text-theme-primary">
                 {query || filterMode !== "all"
                   ? "Nenhum animal encontrado para este filtro"
                   : "Comece cadastrando seu primeiro animal"}
               </h2>
-              <p className="text-sm text-theme-secondary mt-1 max-w-sm mx-auto">
+              <p className="text-xs text-theme-secondary mt-1 max-w-sm mx-auto">
                 {query || filterMode !== "all"
                   ? "Limpe a busca ou altere o filtro para visualizar todos os animais."
                   : "Cadastre o brinco e os dados básicos do bovino para liberar a captura guiada de fotos."}

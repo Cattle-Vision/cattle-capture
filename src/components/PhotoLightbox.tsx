@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { X, ChevronLeft, ChevronRight, Download, Sparkles, Loader2 } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Download, Activity, Loader2 } from 'lucide-react';
 import { Photo, getPhotoUrl } from '@/lib/types';
 
 interface PhotoLightboxProps {
@@ -112,31 +112,31 @@ export default function PhotoLightbox({ photos, initialIndex, onClose, onPhotoRe
         className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/70 to-transparent"
         style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
       >
-        <div className="flex items-center gap-2.5">
-          <span className="text-white/90 text-sm font-bold bg-white/10 px-3 py-1 rounded-full backdrop-blur-sm">
+        <div className="flex items-center gap-2">
+          <span className="text-white/90 text-xs font-bold bg-white/10 px-2.5 py-1 rounded-md backdrop-blur-sm">
             {currentIndex + 1} / {localPhotos.length}
           </span>
           {hasScore && (
-            <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              <Sparkles className="w-3.5 h-3.5" />
+            <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <Activity className="w-3.5 h-3.5" />
               Confiança IA: {Math.round(currentPhoto.score as number)}%
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={handleRecalibrateCurrent}
             disabled={recalibrating}
-            aria-label="Recalcular Score IA"
-            className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-full transition active:scale-95 flex items-center gap-1.5 text-xs font-bold disabled:opacity-50"
-            title="Recalcular Score desta foto com a IA local"
+            aria-label="Recalcular Confiança IA"
+            className="bg-white/10 hover:bg-white/20 text-white px-2.5 py-1.5 rounded-md transition active:scale-95 flex items-center gap-1.5 text-xs font-semibold disabled:opacity-50"
+            title="Recalcular Confiança desta foto com a IA local"
           >
             {recalibrating ? (
-              <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
             ) : (
-              <Sparkles className="w-4 h-4 text-emerald-400" />
+              <Activity className="w-3.5 h-3.5 text-emerald-400" />
             )}
             <span className="hidden xs:inline">
               {recalibrating ? 'Calculando…' : 'Recalcular'}
@@ -147,17 +147,17 @@ export default function PhotoLightbox({ photos, initialIndex, onClose, onPhotoRe
             download={`cattle_photo_${currentPhoto.id}.jpg`}
             onClick={(e) => e.stopPropagation()}
             aria-label="Baixar imagem"
-            className="bg-white/10 hover:bg-white/20 text-white p-2.5 rounded-full transition active:scale-95"
+            className="bg-white/10 hover:bg-white/20 text-white p-1.5 rounded-md transition active:scale-95"
             title="Baixar imagem"
           >
-            <Download className="w-5 h-5" />
+            <Download className="w-4.5 h-4.5" />
           </a>
           <button
             onClick={onClose}
             aria-label="Fechar"
-            className="bg-white/10 hover:bg-white/20 text-white p-2.5 rounded-full transition active:scale-95"
+            className="bg-white/10 hover:bg-white/20 text-white p-1.5 rounded-md transition active:scale-95"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4.5 h-4.5" />
           </button>
         </div>
       </div>
@@ -181,9 +181,9 @@ export default function PhotoLightbox({ photos, initialIndex, onClose, onPhotoRe
             prev();
           }}
           aria-label="Foto anterior"
-          className="absolute left-3 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition active:scale-95 z-10 backdrop-blur-sm"
+          className="absolute left-3 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 text-white p-2 rounded-md transition active:scale-95 z-10 backdrop-blur-sm"
         >
-          <ChevronLeft className="w-6 h-6" />
+          <ChevronLeft className="w-5 h-5" />
         </button>
       )}
 
@@ -195,9 +195,9 @@ export default function PhotoLightbox({ photos, initialIndex, onClose, onPhotoRe
             next();
           }}
           aria-label="Próxima foto"
-          className="absolute right-3 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition active:scale-95 z-10 backdrop-blur-sm"
+          className="absolute right-3 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 text-white p-2 rounded-md transition active:scale-95 z-10 backdrop-blur-sm"
         >
-          <ChevronRight className="w-6 h-6" />
+          <ChevronRight className="w-5 h-5" />
         </button>
       )}
 
