@@ -91,10 +91,6 @@ export default function RegisterPage() {
             </p>
           </div>
         </div>
-
-        <p className="relative z-10 text-xs text-slate-400">
-          CattleCapture · Sincronização Cloud & Offline PWA
-        </p>
       </div>
 
       {/* Formulário */}
@@ -123,10 +119,10 @@ export default function RegisterPage() {
 
           <div className="card p-5 sm:p-7">
             <h2 className="text-xl sm:text-2xl font-bold text-theme-primary tracking-tight mb-1">
-              Criar conta de operador
+              Criar nova conta
             </h2>
             <p className="text-xs sm:text-sm text-theme-secondary mb-5">
-              Preencha seus dados para iniciar a coleta de imagens.
+              Preencha seus dados para começar a catalogar e colaborar com o dataset.
             </p>
 
             {error && (

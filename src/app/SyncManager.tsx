@@ -62,7 +62,7 @@ export function SyncManager() {
   return !isOnline ? (
     <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500 text-amber-950 px-4 py-2 flex items-center justify-center gap-2 text-sm font-semibold shadow-md">
       <Wifi className="w-4 h-4" />
-      Modo Offline — as fotos serão sincronizadas quando houver conexão
+      Sem conexão com a internet — fotos tiradas serão salvas automaticamente ao reconectar
     </div>
   ) : null;
 }

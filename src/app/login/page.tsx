@@ -54,13 +54,10 @@ export default function LoginPage() {
 
         <div className="relative z-10 rounded-lg bg-white/5 border border-white/10 p-4 backdrop-blur-xs">
           <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider mb-1">
-            Acesso Administrativo (.env)
+            Padronização e Qualidade de Dados
           </p>
           <p className="text-xs text-slate-300 leading-relaxed">
-            Administradores podem autenticar usando o e-mail configurado em{" "}
-            <code className="text-white font-mono-tag">ADMIN_EMAIL</code> (ou{" "}
-            <code className="text-white font-mono-tag">admin</code>) e a senha definida em{" "}
-            <code className="text-white font-mono-tag">ADMIN_PASSWORD</code>.
+            Fotografe a região anatômica posterior do rebanho com nossa mira guiada para garantir enquadramentos ideais no treinamento da IA.
           </p>
         </div>
       </div>
@@ -95,7 +92,7 @@ export default function LoginPage() {
               Acessar conta
             </h2>
             <p className="text-xs sm:text-sm text-theme-secondary mb-5">
-              Entre com seu e-mail de operador ou credencial de administrador.
+              Entre com suas credenciais de acesso para gerenciar o rebanho.
             </p>
 
             {state?.error && (
@@ -108,7 +105,7 @@ export default function LoginPage() {
             <form action={formAction} className="flex flex-col gap-5">
               <div>
                 <label className="field-label" htmlFor="email">
-                  E-mail ou Usuário Admin
+                  E-mail
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -118,7 +115,7 @@ export default function LoginPage() {
                     type="text"
                     required
                     className="field-input pl-10"
-                    placeholder="seu@email.com ou admin"
+                    placeholder="seu@email.com"
                     autoComplete="username"
                   />
                 </div>

@@ -89,7 +89,7 @@ export default function LandingPage() {
                 href="/login"
                 className="btn-secondary w-full sm:w-auto px-6 py-3 text-sm"
               >
-                Acessar Painel / Admin
+                Acessar Plataforma
               </Link>
             </div>
 
@@ -145,8 +145,8 @@ export default function LandingPage() {
                 {
                   icon: <FileArchive className="w-6 h-6 text-emerald-500" />,
                   step: "03",
-                  title: "Gestão Admin & Exportação",
-                  desc: "Promova operadores a administradores com 1 clique, audite todas as fotos do rebanho e exporte o dataset completo em ZIP.",
+                  title: "Curadoria & Exportação Científica",
+                  desc: "Audite fotografias com anotações anatômicas e baixe o dataset consolidado em ZIP e JSON para alimentar o treinamento da IA.",
                 },
               ].map((card) => (
                 <div

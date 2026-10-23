@@ -515,13 +515,13 @@ function CameraContent() {
 
         <div className="text-center max-w-sm">
           <h2 className="text-2xl font-extrabold text-white mb-2">
-            {savedOffline ? "Salva na fila offline!" : "Foto salva no dataset!"}
+            {savedOffline ? "Foto salva no dispositivo!" : "Foto salva no dataset!"}
           </h2>
           <p className="text-slate-400 text-sm leading-relaxed">
             {savedOffline ? (
               <>
                 A imagem de <strong className="text-white">{animalName || "animal"}</strong> será
-                sincronizada automaticamente quando houver conexão.
+                enviada ao dataset assim que houver conexão com a internet.
               </>
             ) : (
               <>
@@ -953,9 +953,9 @@ function CameraContent() {
           <div className="bg-slate-900 border border-white/10 rounded-3xl p-8 flex flex-col items-center gap-4 max-w-xs w-full text-center shadow-2xl">
             <RefreshCcw className="w-10 h-10 animate-spin text-emerald-400" />
             <div>
-              <p className="text-white font-extrabold text-base">Enviando para o dataset…</p>
+              <p className="text-white font-extrabold text-base">Salvando foto no dataset…</p>
               <p className="text-slate-400 text-xs mt-1">
-                Sincronizando imagem otimizada com o armazenamento em nuvem
+                Processando imagem para o banco de dados oficial
               </p>
             </div>
           </div>
