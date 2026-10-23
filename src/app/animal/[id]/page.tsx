@@ -140,7 +140,8 @@ export default function AnimalProfilePage() {
     if (!file || !animal) return;
 
     try {
-      const compressed = await compressImageFile(file, 1600, 0.86, 3 / 4);
+      // Suporta fotos de alta resolução e quaisquer proporções livres (1:1, 16:9, etc.) sem recorte forçado
+      const compressed = await compressImageFile(file, 1600, 0.86);
       setPendingPhoto({
         blob: compressed.blob,
         previewUrl: URL.createObjectURL(compressed.blob),
@@ -414,7 +415,7 @@ export default function AnimalProfilePage() {
             <div>
               <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md mb-2">
                 <Activity className="w-3 h-3" />
-                Ficha Zootécnica · ICC
+                Ficha Zootécnica · Dataset ICS
               </span>
               <h2 className="text-xl font-extrabold text-theme-primary">
                 {animal.name ? `${animal.name} (${animal.tag})` : `Brinco ${animal.tag}`}

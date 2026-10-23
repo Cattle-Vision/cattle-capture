@@ -89,16 +89,21 @@ export async function initModel(): Promise<{ session: any; ort: any } | null> {
  * Configurações de inferência dinâmica do modelo YOLO ONNX.
  *
  * Como funciona a inferência dinâmica com stride 32:
- * 1. O grafo do modelo foi exportado com `dynamic=True`, permitindo qualquer dimensão `[1, 3, H, W]`.
- * 2. Em redes convolucionais com arquitetura FPN/PANet, o downsampling máximo é 2^5 = 32 pixels (stride 32).
- * 3. Para imagens de alta resolução (ex: 3000x4000 de celular), o maior lado é escalado suavemente para
- *    `TARGET_MAX_DIMENSION` (padrão 512, ou 640 se configurado em AI_INFERENCE_MAX_DIM), enquanto o menor
- *    lado é ajustado proporcionalmente para o múltiplo de 32 mais próximo (ex: 384x512).
- * 4. Nenhuma parte da imagem é cortada; o bovino inteiro permanece no campo de visão na proporção correta.
+ * 1. O grafo do modelo foi exportado com `dynamic=True`, aceitando tensores `[1, 3, H, W]`.
+ * 2. Em redes convolucionais YOLOv8 (backbone CSPDarknet com FPN/PANet), a redução espacial máxima
+ *    é de 5 níveis ($2^5 = 32$ pixels, stride 32). Portanto, toda dimensão H e W deve ser estritamente
+ *    múltipla de 32.
+ * 3. Suporte a Resoluções > 512x512 e Proporções Livres:
+ *    - O padrão de referência da visão computacional para YOLOv8 é `640px` (ou configurável via `AI_INFERENCE_MAX_DIM`).
+ *    - Imagens em proporções incomuns (1:1 quadrado, 16:9 paisagem, 9:16 retrato, 4:1 panorâmica) têm
+ *      seu aspect ratio 100% preservado; o eixo maior é escalado para até 640px e o menor é alinhado
+ *      ao múltiplo de 32 mais próximo com um piso de segurança de 64px (mínimo de 2x2 no tensor P5).
+ *    - Elimina necessidade de letterbox / barras cinzas, alimentando o bovino inteiro com precisão anatômica.
  */
 const envMaxDim = Number(process.env.AI_INFERENCE_MAX_DIM);
-export const TARGET_MAX_DIMENSION = Number.isFinite(envMaxDim) && envMaxDim >= 320 ? envMaxDim : 512;
+export const TARGET_MAX_DIMENSION = Number.isFinite(envMaxDim) && envMaxDim >= 320 ? envMaxDim : 640;
 const YOLO_STRIDE = 32;
+const YOLO_MIN_DIMENSION = 64;
 
 export function computeDynamicDimensions(
   origWidth?: number,
@@ -111,12 +116,12 @@ export function computeDynamicDimensions(
   if (w >= h) {
     const width = Math.round(maxDimension / YOLO_STRIDE) * YOLO_STRIDE;
     const rawH = (h * width) / w;
-    const height = Math.max(YOLO_STRIDE, Math.round(rawH / YOLO_STRIDE) * YOLO_STRIDE);
+    const height = Math.max(YOLO_MIN_DIMENSION, Math.round(rawH / YOLO_STRIDE) * YOLO_STRIDE);
     return { width, height };
   } else {
     const height = Math.round(maxDimension / YOLO_STRIDE) * YOLO_STRIDE;
     const rawW = (w * height) / h;
-    const width = Math.max(YOLO_STRIDE, Math.round(rawW / YOLO_STRIDE) * YOLO_STRIDE);
+    const width = Math.max(YOLO_MIN_DIMENSION, Math.round(rawW / YOLO_STRIDE) * YOLO_STRIDE);
     return { width, height };
   }
 }

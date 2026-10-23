@@ -174,7 +174,7 @@ export default function AdminPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `cattle-bcs-dataset-${new Date().toISOString().slice(0, 10)}.zip`;
+      a.download = `cattle-ics-dataset-${new Date().toISOString().slice(0, 10)}.zip`;
       a.click();
       URL.revokeObjectURL(url);
       toast('Download do dataset ZIP iniciado com sucesso!', 'success');
@@ -376,7 +376,7 @@ export default function AdminPage() {
                 </span>
               </div>
               <p className="text-[10px] sm:text-[11px] text-theme-muted truncate hidden sm:block">
-                Curadoria global do dataset ICC e gestão de permissões
+                Curadoria global do dataset para IA de ICS e gestão de permissões
               </p>
             </div>
           </div>

@@ -262,7 +262,7 @@ export default function DashboardPage() {
               <p className="text-[10px] sm:text-[11px] font-medium text-theme-secondary truncate hidden xs:block">
                 {loading
                   ? "Carregando…"
-                  : `${stats.totalAnimals} animais · ${stats.totalPhotos} fotos`}
+                  : `${stats.totalAnimals} animais · ${stats.totalPhotos} fotos para IA de ICS`}
               </p>
             </div>
           </div>
@@ -323,7 +323,7 @@ export default function DashboardPage() {
             </div>
             <div className="card p-4">
               <p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                Dataset ICC
+                Dataset ICS
               </p>
               <p className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
                 {stats.totalPhotos}

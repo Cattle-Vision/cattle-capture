@@ -16,9 +16,9 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "CattleCapture · Visão Computacional & Dataset ICC Bovino",
+  title: "CattleCapture · Dataset para IA de ICS Bovino",
   description:
-    "Plataforma de captura padronizada e validação por IA da condição corporal bovina (ICC/BCS).",
+    "Plataforma colaborativa de coleta de imagens anatômicas da região posterior bovina para treinamento da IA de Índice de Condição Corporal (ICS / ECC).",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: "/icon.svg",

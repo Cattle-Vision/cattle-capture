@@ -61,20 +61,20 @@ export default function LandingPage() {
           <div className="relative max-w-4xl mx-auto text-center">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wider mb-5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
               <Activity className="w-3.5 h-3.5 text-emerald-500" />
-              Visão Computacional em Tempo Real · Dataset ICC / BCS
+              Iniciativa de Pesquisa · Construção de Dataset para IA de ICS
             </div>
 
             <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-theme-primary leading-[1.15] mb-5">
-              Captura inteligente para{" "}
+              Coleta de imagens para treinar a{" "}
               <span className="text-emerald-600 dark:text-emerald-400">
-                Avaliação Corporal Bovina
+                futura IA de ICS Bovino
               </span>
             </h1>
 
             <p className="text-sm sm:text-base text-theme-secondary leading-relaxed max-w-2xl mx-auto mb-8">
-              Colete imagens anatômicas da região posterior do rebanho com mira guiada,
-              avaliação de confiança em tempo real no visor da câmera e diagnóstico por IA
-              antes do upload.
+              Utilize nossa câmera inteligente com mira anatômica para fotografar a região posterior do rebanho.
+              Cada foto coletada alimenta e treina o modelo de Deep Learning que automatizará
+              o cálculo do <strong>Índice de Condição Corporal (ICS / ECC)</strong>.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -82,7 +82,7 @@ export default function LandingPage() {
                 href="/register"
                 className="btn-primary w-full sm:w-auto px-6 py-3 text-sm shadow-sm"
               >
-                Começar Coleta em Campo
+                Colaborar com o Dataset
                 <ArrowRight className="w-4 h-4" />
               </Link>
               <Link
@@ -96,10 +96,10 @@ export default function LandingPage() {
             {/* Destaques Técnicos */}
             <div className="mt-10 pt-6 border-t border-theme grid grid-cols-2 sm:grid-cols-4 gap-3 text-left max-w-3xl mx-auto">
               {[
-                { label: "Confiança em Tempo Real", desc: "Análise na mira ao vivo + pré-upload" },
-                { label: "Validação YOLO ONNX", desc: "Detecção automática de traseira" },
-                { label: "PWA & Offline Sync", desc: "Instalável no celular + fila IndexedDB" },
-                { label: "Exportação Científica", desc: "Pacote ZIP + JSON + Planilha CSV" },
+                { label: "Dataset para IA de ICS", desc: "Anotação zootécnica de escore corporal" },
+                { label: "Enquadramento Anatômico", desc: "Mira inteligente focada na garupa e ísquios" },
+                { label: "Suporte a Qualquer Foto", desc: "Aceita resoluções gigantes e formatos livres" },
+                { label: "Exportação Científica", desc: "Download em ZIP + JSON para treinamento" },
               ].map((item) => (
                 <div
                   key={item.label}
@@ -177,13 +177,13 @@ export default function LandingPage() {
             <div className="max-w-lg text-center sm:text-left">
               <div className="inline-flex items-center gap-1.5 text-emerald-400 text-xs font-bold uppercase tracking-wider mb-2">
                 <Database className="w-3.5 h-3.5" />
-                Pronto para Produção na Vercel & Mobile PWA
+                Construção Coletiva do Dataset de ICS
               </div>
               <h2 className="text-xl sm:text-2xl font-bold tracking-tight mb-2">
-                Construa seu dataset bovino hoje
+                Participe do treinamento da IA de ICS
               </h2>
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                Acesse com sua conta de operador de campo ou utilize as credenciais administrativas configuradas.
+                Cada foto capturada em campo com nossa mira guiada amplia o banco de dados oficial que treina o modelo de predição do Índice de Condição Corporal.
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto shrink-0">
@@ -192,7 +192,7 @@ export default function LandingPage() {
                 className="btn-primary px-6 py-3 text-xs sm:text-sm whitespace-nowrap"
               >
                 <ShieldCheck className="w-4 h-4" />
-                Entrar no Sistema
+                Acessar Plataforma
               </Link>
             </div>
           </div>
@@ -201,7 +201,7 @@ export default function LandingPage() {
 
       {/* Footer Compacto */}
       <footer className="border-t border-theme py-4 px-4 text-center text-xs text-theme-muted">
-        CattleCapture v3.0 · Sistema de Coleta e Visão Computacional para Condição Corporal Bovina (ICC)
+        CattleCapture · Plataforma de Coleta & Construção de Dataset para IA de ICS (Índice de Condição Corporal Bovino)
       </footer>
     </div>
   );

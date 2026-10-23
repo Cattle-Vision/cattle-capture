@@ -80,14 +80,14 @@ export default function RegisterPage() {
           <div className="mt-14">
             <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-md mb-4">
               <UserPlus className="w-3.5 h-3.5" />
-              Novo Operador
+              Colaborador de Campo
             </span>
             <h1 className="text-3xl font-bold leading-tight tracking-tight">
-              Comece a catalogar seu rebanho em segundos.
+              Ajude a construir o dataset para a IA de ICS.
             </h1>
             <p className="mt-4 text-sm text-slate-300 leading-relaxed">
-              Cadastre animais por brinco, registre o histórico fotográfico padronizado
-              e contribua para o dataset de condição corporal bovina.
+              Fotografe a região posterior de bovinos com mira anatômica padronizada e
+              alimente o banco de dados que treinará o modelo de predição do Índice de Condição Corporal.
             </p>
           </div>
         </div>

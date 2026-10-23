@@ -40,14 +40,14 @@ export default function LoginPage() {
           <div className="mt-14">
             <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-md mb-4">
               <ShieldCheck className="w-3.5 h-3.5" />
-              Plataforma ICC Bovino
+              Dataset para IA de ICS
             </span>
             <h1 className="text-3xl font-bold leading-tight tracking-tight">
-              Coleta inteligente de imagens em campo.
+              Construindo o dataset para a IA de ICS Bovino.
             </h1>
             <p className="mt-4 text-sm text-slate-300 leading-relaxed">
-              Gerencie o rebanho por brinco identificador, capture imagens padronizadas
-              da garupa com confiança IA em tempo real e exporte datasets prontos para treinamento.
+              Ajude a alimentar o banco de dados oficial de imagens traseiras do rebanho para
+              viabilizar a primeira IA de predição do Índice de Condição Corporal (ICS / ECC).
             </p>
           </div>
         </div>

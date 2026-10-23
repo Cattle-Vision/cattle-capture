@@ -277,7 +277,7 @@ function CameraContent() {
     };
   }, [animalId]);
 
-  /* ── Loop de IA em Tempo Real no Viewfinder ── */
+  /* ── Loop de IA e Orientação Óptica Estável no Viewfinder ── */
   useEffect(() => {
     if (screen !== "viewfinder" || !vidReady || !!camErr) return;
 
@@ -285,33 +285,42 @@ function CameraContent() {
     let inFlightServerCheck = false;
     let tickCount = 0;
 
-    // Monitoramento contínuo: orientação óptica a 400ms e IA periódica estável
+    // Monitoramento contínuo: cálculo óptico suave a 400ms e calibração periódica estável
     const interval = setInterval(async () => {
       if (!active) return;
       const video = videoRef.current;
       const scratch = scratchCanvasRef.current;
       if (!video || !scratch || !video.videoWidth) return;
 
-      // 1. Orientação óptica contínua no visor (foco, luz e centralização)
+      // 1. Orientação óptica contínua e instantânea no recorte da mira
       const instant = computeInstantVideoScore(video, scratch, reticleRef.current);
       if (instant && active) {
         setLiveStatus(instant.statusText);
+        // Suavização exponencial (EMA) para estabilizar os números sem oscilação brusca
+        setLiveScore((prev) =>
+          prev === null ? instant.score : Math.round(prev * 0.75 + instant.score * 0.25)
+        );
       }
 
-      // 2. Inferência de Confiança IA periódica (a cada ~1.6s, sem misturar com métricas ópticas locais)
+      // 2. Inferência de Confiança IA periódica (em canvas isolado para não conflitar com a ótica)
       tickCount++;
       if (tickCount % 4 === 0 && !inFlightServerCheck && navigator.onLine) {
         inFlightServerCheck = true;
         try {
-          const miniFrame = await captureVideoFrame(video, scratch, reticleRef.current, 384, 0.75);
+          // Usa canvas offscreen isolado para manter a integridade do scratchCanvas
+          const offCanvas = document.createElement("canvas");
+          const miniFrame = await captureVideoFrame(video, offCanvas, reticleRef.current, 512, 0.85);
           if (miniFrame && active) {
             const aiRes = await evaluatePhotoScoreBeforeUpload(miniFrame.blob);
-            if (active && typeof aiRes.score === "number" && aiRes.source === "yolo-onnx") {
-              setLiveScore(Math.round(aiRes.score));
+            if (active && typeof aiRes.score === "number") {
+              // Fusão ponderada suave da detecção neural sobre a média móvel
+              setLiveScore((prev) =>
+                prev === null ? Math.round(aiRes.score) : Math.round(prev * 0.7 + aiRes.score * 0.3)
+              );
             }
           }
         } catch {
-          // ignora erro no loop live
+          // ignora falhas transitórias de conexão no background do visor
         } finally {
           inFlightServerCheck = false;
         }
@@ -381,8 +390,8 @@ function CameraContent() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Aplica recorte proporcional 3:4 padronizado para focar a garupa
-    const compressed = await compressImageFile(file, 1600, 0.86, 3 / 4);
+    // Suporta fotos em alta resolução (>512x512) e proporções livres (1:1, 16:9, etc.) sem recorte forçado
+    const compressed = await compressImageFile(file, 1600, 0.86);
 
     if (previewRef.current.startsWith("blob:")) {
       URL.revokeObjectURL(previewRef.current);
@@ -429,13 +438,14 @@ function CameraContent() {
       const data = await res.json().catch(() => ({}));
 
       if (res.ok) {
-        if (typeof data.score === "number" && !previewAnalysis) {
-          setPreviewAnalysis({
+        if (typeof data.score === "number") {
+          setPreviewAnalysis((prev) => ({
             score: data.score,
             lowQuality: Boolean(data.lowQuality),
             source: "yolo-onnx",
-            feedback: "",
-          });
+            feedback: prev?.feedback || "Foto gravada no dataset oficial para IA de ICS.",
+            box: prev?.box,
+          }));
         }
         setScreen("done");
         return;
@@ -517,7 +527,7 @@ function CameraContent() {
               <>
                 Imagem posterior de{" "}
                 <strong className="text-white">{animalName || "animal"}</strong> registrada com
-                sucesso.
+                sucesso para o dataset oficial da IA de ICS.
               </>
             )}
           </p>
@@ -635,7 +645,7 @@ function CameraContent() {
             {animalName || "Captura Guiada"}
           </p>
           <p className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-widest text-emerald-400 truncate">
-            Vista Posterior · ICC
+            Vista Posterior · Dataset ICS
           </p>
         </div>
 
@@ -687,7 +697,7 @@ function CameraContent() {
                     }`}
                   >
                     <Activity className="w-3.5 h-3.5 animate-pulse" />
-                    <span>Confiança ao Vivo: {liveScore}%</span>
+                    <span>{isLiveGood ? "Enquadramento Ideal" : "Ajuste o Enquadramento"} · {liveScore}%</span>
                   </div>
                 )}
 
