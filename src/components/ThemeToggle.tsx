@@ -16,7 +16,7 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       onClick={toggleTheme}
       aria-label={isDark ? "Mudar para tema claro" : "Mudar para tema escuro"}
       title={isDark ? "Modo Claro" : "Modo Escuro"}
-      className={`p-2 sm:p-2.5 rounded-xl border border-theme bg-theme-surface hover:bg-theme-surface-2 text-theme-secondary hover:text-theme-primary transition active:scale-95 shrink-0 inline-flex items-center justify-center ${className}`}
+      className={`p-2 rounded-md border border-theme bg-theme-surface hover:bg-theme-surface-2 text-theme-secondary hover:text-theme-primary transition active:scale-95 shrink-0 inline-flex items-center justify-center min-w-[38px] min-h-[38px] touch-manipulation ${className}`}
     >
       {isDark ? (
         <Sun className="w-4 h-4 text-amber-400" />

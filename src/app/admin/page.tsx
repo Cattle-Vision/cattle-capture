@@ -90,7 +90,7 @@ export default function AdminPage() {
   const [newUserRole, setNewUserRole] = useState<'USER' | 'ADMIN'>('ADMIN');
   const [savingUser, setSavingUser] = useState(false);
 
-  const { toast } = useToast();
+  const { toast, confirm } = useToast();
   const router = useRouter();
 
   useEffect(() => {
@@ -194,9 +194,14 @@ export default function AdminPage() {
    */
   const handleRecalibrateScores = async () => {
     if (recalibrating) return;
-    const confirmMsg =
-      'Deseja recalcular a confiança de todas as fotos do banco de dados com a IA calibrada? Isso atualizará os valores de confiança no banco.';
-    if (!window.confirm(confirmMsg)) return;
+    const ok = await confirm({
+      title: 'Recalcular Confiança do Dataset',
+      message:
+        'Deseja recalcular a confiança de todas as fotos do banco de dados com a IA calibrada? Isso atualizará permanentemente os registros.',
+      confirmText: 'Recalcular Todas',
+      variant: 'primary',
+    });
+    if (!ok) return;
 
     setRecalibrating(true);
     try {
@@ -268,13 +273,13 @@ export default function AdminPage() {
    * Exclui um usuário após confirmação.
    */
   const handleDeleteUser = async (target: AdminUserRow) => {
-    if (
-      !window.confirm(
-        `Tem certeza que deseja excluir o usuário "${target.name}" (${target.email})?`
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: 'Excluir Usuário',
+      message: `Tem certeza que deseja excluir o usuário "${target.name}" (${target.email})? Esta ação não pode ser desfeita.`,
+      confirmText: 'Excluir Usuário',
+      variant: 'danger',
+    });
+    if (!ok) return;
 
     setUpdatingUserId(target.id);
     try {
@@ -360,7 +365,7 @@ export default function AdminPage() {
           <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
             <Link
               href="/dashboard"
-              className="p-1.5 sm:p-2 rounded-md text-theme-secondary hover:bg-theme-surface-2 transition shrink-0"
+              className="p-2 rounded-md min-w-[38px] min-h-[38px] flex items-center justify-center text-theme-secondary hover:bg-theme-surface-2 transition active:scale-95 touch-manipulation shrink-0"
               aria-label="Voltar ao Dashboard"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -382,11 +387,11 @@ export default function AdminPage() {
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <ThemeToggle className="p-1.5 sm:p-2" />
+            <ThemeToggle />
             <button
               onClick={handleDownload}
               disabled={downloading || stats.totalPhotos === 0}
-              className="btn-primary py-1.5 px-2.5 sm:px-3 text-xs shrink-0 flex items-center gap-1.5"
+              className="btn-primary py-1.5 px-3 min-h-[38px] text-xs shrink-0 flex items-center gap-1.5 active:scale-95 touch-manipulation"
               title="Exportar dataset completo em ZIP"
               aria-label="Exportar dataset ZIP"
             >

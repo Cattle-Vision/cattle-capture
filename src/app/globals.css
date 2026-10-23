@@ -273,6 +273,7 @@ input.field-input.pr-11 {
   justify-content: center;
   gap: 0.5rem;
   padding: 0.65rem 1.15rem;
+  min-height: 42px;
   background: #059669;
   color: #fff;
   font-weight: 600;
@@ -280,12 +281,20 @@ input.field-input.pr-11 {
   border-radius: 8px;
   border: 1px solid #047857;
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  touch-action: manipulation;
+  user-select: none;
 }
 .btn-primary:hover:not(:disabled) {
   background: #047857;
   box-shadow: 0 2px 4px rgb(5 150 105 / 0.2);
 }
-.btn-primary:active:not(:disabled) { transform: scale(0.99); }
+.btn-primary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.btn-primary:focus-visible {
+  outline: 2px solid #059669;
+  outline-offset: 2px;
+}
 
 .btn-secondary {
   display: inline-flex;
@@ -293,6 +302,7 @@ input.field-input.pr-11 {
   justify-content: center;
   gap: 0.5rem;
   padding: 0.65rem 1.1rem;
+  min-height: 42px;
   background: var(--color-surface);
   color: var(--color-text-primary);
   font-weight: 600;
@@ -300,12 +310,20 @@ input.field-input.pr-11 {
   border-radius: 8px;
   border: 1px solid var(--color-border);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+  touch-action: manipulation;
+  user-select: none;
 }
 .btn-secondary:hover:not(:disabled) {
   background: var(--color-surface-2);
   border-color: var(--color-border-strong);
 }
-.btn-secondary:active:not(:disabled) { transform: scale(0.99); }
+.btn-secondary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.btn-secondary:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
 
 .btn-ghost {
   display: inline-flex;
@@ -313,15 +331,21 @@ input.field-input.pr-11 {
   justify-content: center;
   gap: 0.45rem;
   padding: 0.55rem 0.85rem;
+  min-height: 38px;
   background: transparent;
   color: var(--color-text-secondary);
   font-weight: 600;
   font-size: 13px;
   border-radius: 6px;
+  touch-action: manipulation;
+  user-select: none;
 }
 .btn-ghost:hover:not(:disabled) {
   background: var(--color-surface-2);
   color: var(--color-text-primary);
+}
+.btn-ghost:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 /* ── Card ── */

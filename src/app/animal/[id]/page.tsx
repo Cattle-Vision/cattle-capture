@@ -215,7 +215,12 @@ export default function AnimalProfilePage() {
 
   /* ── Excluir Foto ── */
   const handleDeletePhoto = async (photoId: string) => {
-    const ok = await confirm("Deseja realmente apagar esta foto do dataset?");
+    const ok = await confirm({
+      title: "Excluir Foto do Dataset",
+      message: "Deseja realmente apagar esta foto do dataset? Esta ação não pode ser desfeita.",
+      confirmText: "Excluir Foto",
+      variant: "danger",
+    });
     if (!ok) return;
     const res = await fetch(`/api/photos/${photoId}`, { method: "DELETE" });
     if (res.ok) {
@@ -265,9 +270,12 @@ export default function AnimalProfilePage() {
   /* ── Excluir Animal ── */
   const handleDeleteAnimal = async () => {
     if (!animal) return;
-    const ok = await confirm(
-      `Excluir o animal ${animal.tag} e todas as suas ${animal.photos?.length ?? 0} fotos? Esta ação é irreversível.`
-    );
+    const ok = await confirm({
+      title: `Excluir Animal ${animal.tag}`,
+      message: `Tem certeza que deseja excluir o animal ${animal.tag} e todas as suas ${animal.photos?.length ?? 0} fotos? Esta ação é irreversível.`,
+      confirmText: "Excluir Definitivamente",
+      variant: "danger",
+    });
     if (!ok) return;
 
     const res = await fetch(`/api/animals/${animal.id}`, { method: "DELETE" });
@@ -367,7 +375,7 @@ export default function AnimalProfilePage() {
             <button
               onClick={() => router.push("/dashboard")}
               aria-label="Voltar ao painel"
-              className="p-1.5 sm:p-2 rounded-md text-theme-secondary hover:bg-theme-surface-2 shrink-0"
+              className="p-2 rounded-md min-w-[38px] min-h-[38px] flex items-center justify-center text-theme-secondary hover:bg-theme-surface-2 transition active:scale-95 touch-manipulation shrink-0"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
@@ -386,21 +394,23 @@ export default function AnimalProfilePage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
-            <ThemeToggle className="p-1.5 sm:p-2" />
+          <div className="flex items-center gap-1 shrink-0">
+            <ThemeToggle />
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="p-1.5 sm:p-2 rounded-md text-theme-secondary hover:bg-theme-surface-2"
+              className="p-2 rounded-md min-w-[38px] min-h-[38px] flex items-center justify-center text-theme-secondary hover:bg-theme-surface-2 transition active:scale-95 touch-manipulation"
               title="Editar dados do animal"
+              aria-label="Editar dados do animal"
             >
               <Pencil className="w-4 h-4" />
             </button>
             <button
               type="button"
               onClick={handleDeleteAnimal}
-              className="p-1.5 sm:p-2 rounded-md text-theme-secondary hover:text-red-500 hover:bg-red-500/10"
+              className="p-2 rounded-md min-w-[38px] min-h-[38px] flex items-center justify-center text-theme-secondary hover:text-red-500 hover:bg-red-500/10 transition active:scale-95 touch-manipulation"
               title="Excluir animal"
+              aria-label="Excluir animal"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -422,17 +432,17 @@ export default function AnimalProfilePage() {
               </h2>
             </div>
 
-            <div className="flex items-center gap-2.5">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
               <button
                 type="button"
                 disabled={uploading}
                 onClick={() => fileInputRef.current?.click()}
-                className="btn-secondary py-2.5 px-4 text-xs"
+                className="btn-secondary py-2.5 px-4 text-xs justify-center min-h-[42px]"
               >
                 <Upload className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 Enviar da Galeria
               </button>
-              <Link href={cameraUrl} className="btn-primary py-2.5 px-4 text-xs">
+              <Link href={cameraUrl} className="btn-primary py-2.5 px-4 text-xs justify-center min-h-[42px]">
                 <Camera className="w-4 h-4" />
                 Câmera IA ao Vivo
               </Link>

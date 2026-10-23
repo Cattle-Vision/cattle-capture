@@ -167,13 +167,17 @@ export default function DashboardPage() {
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [recalibratingHerd, setRecalibratingHerd] = useState(false);
   const router = useRouter();
-  const { toast } = useToast();
+  const { toast, confirm } = useToast();
 
   const handleRecalibrateHerd = async () => {
     if (recalibratingHerd) return;
-    const ok = window.confirm(
-      "Deseja recalcular a confiança de todas as fotos dos seus animais com a IA atual calibrada?"
-    );
+    const ok = await confirm({
+      title: "Recalcular Confiança do Rebanho",
+      message:
+        "Deseja recalcular a confiança de todas as fotos dos seus animais com o modelo de IA calibrado?",
+      confirmText: "Recalcular Rebanho",
+      variant: "primary",
+    });
     if (!ok) return;
 
     setRecalibratingHerd(true);
@@ -268,11 +272,11 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-            <ThemeToggle className="p-1.5 sm:p-2" />
+            <ThemeToggle />
             {isAdmin && (
               <Link
                 href="/admin"
-                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition shrink-0"
+                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 min-h-[38px] text-xs font-semibold rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition shrink-0"
                 title="Central Administrativa"
                 aria-label="Central Administrativa"
               >
@@ -282,14 +286,14 @@ export default function DashboardPage() {
             )}
             <Link
               href="/identify"
-              className="hidden sm:inline-flex btn-secondary py-1.5 px-3 text-xs"
+              className="hidden sm:inline-flex btn-secondary py-1.5 px-3 min-h-[38px] text-xs"
             >
               <ScanLine className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
               Identificar Brinco
             </Link>
             <Link
               href="/animal/new"
-              className="hidden sm:inline-flex btn-primary py-1.5 px-3 text-xs"
+              className="hidden sm:inline-flex btn-primary py-1.5 px-3 min-h-[38px] text-xs"
             >
               <Plus className="w-3.5 h-3.5" />
               Novo Animal
@@ -297,7 +301,7 @@ export default function DashboardPage() {
             <form action={logoutAction} className="shrink-0">
               <button
                 type="submit"
-                className="p-1.5 sm:p-2 rounded-md text-theme-secondary hover:text-red-500 hover:bg-red-500/10 transition"
+                className="p-2 rounded-md min-w-[38px] min-h-[38px] flex items-center justify-center text-theme-secondary hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition touch-manipulation"
                 title="Sair da conta"
                 aria-label="Sair da conta"
               >

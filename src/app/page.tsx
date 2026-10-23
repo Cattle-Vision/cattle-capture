@@ -36,7 +36,7 @@ export default function LandingPage() {
                 Cattle<span className="text-emerald-600 dark:text-emerald-400">Capture</span>
               </span>
               <span className="hidden sm:inline-block text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
-                v3.0 · Real-Time AI
+                Dataset Oficial · IA de ICS
               </span>
             </div>
           </div>

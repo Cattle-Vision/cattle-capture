@@ -632,7 +632,7 @@ function CameraContent() {
       >
         <button
           onClick={() => router.back()}
-          className="flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-md bg-white/10 hover:bg-white/20 backdrop-blur-md text-white text-xs font-semibold shrink-0"
+          className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-2 min-h-[38px] rounded-md bg-white/10 hover:bg-white/20 active:scale-95 backdrop-blur-md text-white text-xs font-semibold shrink-0 touch-manipulation transition"
           title="Voltar"
           aria-label="Voltar"
         >
@@ -654,7 +654,7 @@ function CameraContent() {
             type="button"
             onClick={handleSwitchCamera}
             disabled={switchingCamera}
-            className="flex items-center gap-1 p-1.5 sm:px-2.5 sm:py-1.5 rounded-md bg-white/10 hover:bg-white/20 backdrop-blur-md text-white text-xs font-semibold"
+            className="flex items-center gap-1 p-2 sm:px-2.5 sm:py-2 min-h-[38px] rounded-md bg-white/10 hover:bg-white/20 active:scale-95 backdrop-blur-md text-white text-xs font-semibold touch-manipulation transition"
             title="Alternar entre câmeras ou inverter direção"
             aria-label="Alternar câmera"
           >
@@ -666,7 +666,7 @@ function CameraContent() {
 
           <button
             onClick={() => galleryRef.current?.click()}
-            className="flex items-center gap-1 p-1.5 sm:px-2.5 sm:py-1.5 rounded-md bg-white/10 hover:bg-white/20 backdrop-blur-md text-white text-xs font-semibold shrink-0"
+            className="flex items-center gap-1 p-2 sm:px-2.5 sm:py-2 min-h-[38px] rounded-md bg-white/10 hover:bg-white/20 active:scale-95 backdrop-blur-md text-white text-xs font-semibold shrink-0 touch-manipulation transition"
             title="Escolher da galeria"
             aria-label="Escolher da galeria"
           >
@@ -930,7 +930,7 @@ function CameraContent() {
           >
             <button
               onClick={retake}
-              className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-slate-800 hover:bg-slate-700 rounded-lg text-white font-semibold text-xs sm:text-sm"
+              className="flex-1 flex items-center justify-center gap-1.5 py-3 min-h-[44px] bg-slate-800 hover:bg-slate-700 active:scale-98 rounded-lg text-white font-semibold text-xs sm:text-sm touch-manipulation transition"
             >
               <RotateCcw className="w-4 h-4" />
               Tirar Outra
@@ -938,7 +938,7 @@ function CameraContent() {
             <button
               onClick={handleSave}
               disabled={scoringPreview}
-              className="flex-1 btn-primary py-3 rounded-lg text-xs sm:text-sm"
+              className="flex-1 btn-primary py-3 min-h-[44px] rounded-lg text-xs sm:text-sm active:scale-98 touch-manipulation justify-center"
             >
               <Check className="w-4 h-4" />
               Salvar no Dataset

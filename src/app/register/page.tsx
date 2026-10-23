@@ -93,7 +93,7 @@ export default function RegisterPage() {
         </div>
 
         <p className="relative z-10 text-xs text-slate-400">
-          CattleCapture v3.0 · Sincronização Cloud & Offline PWA
+          CattleCapture · Sincronização Cloud & Offline PWA
         </p>
       </div>
 
