@@ -1,0 +1,28 @@
+# Dependências e ambientes virtuais locais
+.venv/
+venv/
+env/
+__pycache__/
+
+# Scratch scripts e testes temporários
+scratch/
+tests/
+test_*.mjs
+coverage/
+*.log
+
+# Storage local e arquivos de upload efêmeros
+storage/uploads/
+storage/temp/
+certificates/
+*.pem
+
+# Documentação pesada não necessária em runtime
+tasks.md
+implementation_plan.md
+
+# Arquivos de IDE e SO
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

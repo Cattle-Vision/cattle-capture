@@ -46,12 +46,10 @@ let sessionLoadAttempted = false;
 function resolveModelPath(): string | null {
   const candidates = [
     path.join(process.cwd(), "identifier.onnx"),
-    path.join(process.cwd(), "public", "identifier.onnx"),
     path.resolve(__dirname, "identifier.onnx"),
     path.resolve(__dirname, "../identifier.onnx"),
     path.resolve(__dirname, "../../identifier.onnx"),
     path.resolve(__dirname, "../../../identifier.onnx"),
-    path.resolve(__dirname, "../public/identifier.onnx"),
   ];
 
   for (const candidate of candidates) {
@@ -91,11 +89,13 @@ export async function initModel(): Promise<{ session: any; ort: any } | null> {
  * Como funciona a inferência dinâmica com stride 32:
  * 1. O grafo do modelo foi exportado com `dynamic=True`, permitindo qualquer dimensão `[1, 3, H, W]`.
  * 2. Em redes convolucionais com arquitetura FPN/PANet, o downsampling máximo é 2^5 = 32 pixels (stride 32).
- * 3. Portanto, para preservar 100% da anatomia real do animal sem barras cinzas (letterboxing)
- *    e sem deformação de aspecto, calculamos a escala proporcional da foto e alinhamos
- *    a largura e altura dinamicamente ao múltiplo de 32 mais próximo.
+ * 3. Para imagens de alta resolução (ex: 3000x4000 de celular), o maior lado é escalado suavemente para
+ *    `TARGET_MAX_DIMENSION` (padrão 512, ou 640 se configurado em AI_INFERENCE_MAX_DIM), enquanto o menor
+ *    lado é ajustado proporcionalmente para o múltiplo de 32 mais próximo (ex: 384x512).
+ * 4. Nenhuma parte da imagem é cortada; o bovino inteiro permanece no campo de visão na proporção correta.
  */
-export const TARGET_MAX_DIMENSION = 512;
+const envMaxDim = Number(process.env.AI_INFERENCE_MAX_DIM);
+export const TARGET_MAX_DIMENSION = Number.isFinite(envMaxDim) && envMaxDim >= 320 ? envMaxDim : 512;
 const YOLO_STRIDE = 32;
 
 export function computeDynamicDimensions(
