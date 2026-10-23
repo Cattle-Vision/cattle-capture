@@ -46,10 +46,12 @@ let sessionLoadAttempted = false;
 function resolveModelPath(): string | null {
   const candidates = [
     path.join(process.cwd(), "identifier.onnx"),
+    path.join(process.cwd(), "public", "identifier.onnx"),
     path.resolve(__dirname, "identifier.onnx"),
     path.resolve(__dirname, "../identifier.onnx"),
     path.resolve(__dirname, "../../identifier.onnx"),
     path.resolve(__dirname, "../../../identifier.onnx"),
+    path.resolve(__dirname, "../public/identifier.onnx"),
   ];
 
   for (const candidate of candidates) {

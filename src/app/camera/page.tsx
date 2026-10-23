@@ -103,7 +103,6 @@ function CameraContent() {
   const scratchCanvasRef = useRef<HTMLCanvasElement>(null);
   const reticleRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const nativeCamRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const blobRef = useRef<Blob | null>(null);
   const previewRef = useRef<string>("");
@@ -410,7 +409,6 @@ function CameraContent() {
     );
     setScreen("preview");
 
-    if (nativeCamRef.current) nativeCamRef.current.value = "";
     if (galleryRef.current) galleryRef.current.value = "";
 
     // Calcula o Score IA imediatamente na tela de Preview, ANTES do upload
@@ -601,17 +599,7 @@ function CameraContent() {
       <canvas ref={canvasRef} className="hidden" />
       <canvas ref={scratchCanvasRef} className="hidden" />
 
-      {/* Input 1: Câmera nativa do aparelho */}
-      <input
-        ref={nativeCamRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={handleFile}
-      />
-
-      {/* Input 2: Galeria de fotos / arquivo */}
+      {/* Input de Seleção de Foto / Galeria */}
       <input
         ref={galleryRef}
         type="file"
@@ -734,6 +722,21 @@ function CameraContent() {
                   }`}
                 />
 
+                {/* Silhueta guia central da vaca (garupa e coluna anatômica) */}
+                <svg
+                  viewBox="0 0 200 260"
+                  className="w-full h-full opacity-40 pointer-events-none"
+                  fill="none"
+                  stroke={isLiveGood ? "#34D399" : "#FBBF24"}
+                  strokeWidth="2"
+                  strokeDasharray="6 6"
+                >
+                  {/* Linha central da coluna/cauda */}
+                  <line x1="100" y1="35" x2="100" y2="225" />
+                  {/* Contorno referencial de garupa e ísquios */}
+                  <path d="M50 75 Q100 50 150 75 L160 185 Q100 200 40 185 Z" />
+                </svg>
+
                 {/* Linhas de retículo e mira técnica central */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-25">
                   <div className="w-6 h-0.5 bg-white/70" />
@@ -765,21 +768,14 @@ function CameraContent() {
               </div>
               <div className="max-w-xs">
                 <h3 className="text-white font-extrabold text-base mb-1">
-                  Modo de Captura Direta
+                  Câmera Indisponível
                 </h3>
                 <p className="text-slate-400 text-xs leading-relaxed">{camErr}</p>
               </div>
               <div className="flex flex-col gap-3 w-full max-w-xs">
                 <button
-                  onClick={() => nativeCamRef.current?.click()}
-                  className="btn-primary w-full py-4 text-sm"
-                >
-                  <Camera className="w-5 h-5" />
-                  Abrir Câmera do Aparelho
-                </button>
-                <button
                   onClick={() => galleryRef.current?.click()}
-                  className="w-full py-3.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-bold text-sm flex items-center justify-center gap-2 transition"
+                  className="btn-primary w-full py-3.5 text-sm flex items-center justify-center gap-2"
                 >
                   <ImagePlus className="w-4 h-4" />
                   Selecionar Foto da Galeria
@@ -790,9 +786,9 @@ function CameraContent() {
 
           {/* Controles de Disparo */}
           <div
-            className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-around py-3 px-3 sm:px-6"
+            className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-around py-4 px-4 sm:px-8"
             style={{
-              paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+              paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))",
               background: "linear-gradient(to top, rgba(2,6,23,0.92) 0%, transparent 100%)",
             }}
           >
@@ -805,47 +801,28 @@ function CameraContent() {
               title="Alternar entre câmeras ou inverter direção"
               aria-label="Trocar de câmera"
             >
-              <div className="w-10 h-10 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/10">
-                <SwitchCamera className={`w-4 h-4 ${switchingCamera ? "animate-spin text-emerald-400" : ""}`} />
+              <div className="w-11 h-11 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/10">
+                <SwitchCamera className={`w-5 h-5 ${switchingCamera ? "animate-spin text-emerald-400" : ""}`} />
               </div>
               <span className="text-[10px] font-semibold">
                 {videoDevices.length > 1 ? `Lentes (${videoDevices.length})` : "Inverter"}
               </span>
             </button>
 
-            {/* 2. Câmera Nativa do Aparelho (App oficial do celular) */}
-            <button
-              type="button"
-              onClick={() => {
-                if (nativeCamRef.current) {
-                  nativeCamRef.current.value = "";
-                  nativeCamRef.current.click();
-                }
-              }}
-              className="flex flex-col items-center gap-1 text-white/80 hover:text-white transition active:scale-95"
-              title="Abrir aplicativo de Câmera Nativa do dispositivo"
-              aria-label="Câmera nativa"
-            >
-              <div className="w-10 h-10 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/10">
-                <Camera className="w-4 h-4 text-emerald-300" />
-              </div>
-              <span className="text-[10px] font-semibold">Nativa</span>
-            </button>
-
-            {/* 3. Disparo em Tempo Real (Frame do visor com Confiança IA) */}
+            {/* 2. Disparo em Tempo Real (Frame do visor com Confiança IA) */}
             <button
               type="button"
               onClick={handleCapture}
               disabled={!vidReady || !!camErr}
               aria-label="Capturar foto agora"
-              className="w-15 h-15 sm:w-16 sm:h-16 rounded-full border-2 border-emerald-400 p-1 flex items-center justify-center active:scale-95 disabled:opacity-35 transition-transform bg-emerald-500/10 shadow-md shadow-emerald-500/20"
+              className="w-16 h-16 sm:w-18 sm:h-18 rounded-full border-2 border-emerald-400 p-1 flex items-center justify-center active:scale-95 disabled:opacity-35 transition-transform bg-emerald-500/10 shadow-lg shadow-emerald-500/25"
             >
               <div className="w-full h-full rounded-full bg-emerald-500 hover:bg-emerald-400 flex items-center justify-center transition">
-                <Camera className="w-6 h-6 text-slate-950" />
+                <Camera className="w-7 h-7 text-slate-950" />
               </div>
             </button>
 
-            {/* 4. Galeria de Fotos */}
+            {/* 3. Galeria de Fotos */}
             <button
               type="button"
               onClick={() => {
@@ -857,8 +834,8 @@ function CameraContent() {
               className="flex flex-col items-center gap-1 text-white/80 hover:text-white transition active:scale-95"
               aria-label="Enviar da galeria"
             >
-              <div className="w-10 h-10 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/10">
-                <ImagePlus className="w-4 h-4" />
+              <div className="w-11 h-11 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/10">
+                <ImagePlus className="w-5 h-5" />
               </div>
               <span className="text-[10px] font-semibold">Galeria</span>
             </button>
