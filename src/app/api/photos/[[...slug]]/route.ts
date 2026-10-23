@@ -165,13 +165,10 @@ export async function POST(request: Request, context: Context) {
         rawBuffer
       );
 
-      // Se o cliente já enviou o score calculado no preview, utiliza-o; senão calcula com timeout
-      const preScoreRaw = formData.get("preScore");
-      const parsedPreScore =
-        preScoreRaw !== null && preScoreRaw !== "" ? Number(preScoreRaw) : NaN;
-      const aiScore = Number.isFinite(parsedPreScore)
-        ? Math.round(parsedPreScore * 10) / 10
-        : await inferScoreWithTimeout(optimizedBuffer);
+      // Executa a inferência canônica da IA sobre o buffer real persistido
+      // Isso garante 100% de paridade e determinismo entre upload, recálculo individual e em lote
+      const analysis = await analyzeRearImage(optimizedBuffer);
+      const aiScore = analysis.score;
 
       const photo = await prisma.photo.create({
         data: {

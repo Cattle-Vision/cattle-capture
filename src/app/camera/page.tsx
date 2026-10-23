@@ -285,42 +285,33 @@ function CameraContent() {
     let inFlightServerCheck = false;
     let tickCount = 0;
 
+    // Monitoramento contínuo: orientação óptica a 400ms e IA periódica estável
     const interval = setInterval(async () => {
       if (!active) return;
       const video = videoRef.current;
       const scratch = scratchCanvasRef.current;
       if (!video || !scratch || !video.videoWidth) return;
 
-      // 1. Análise óptica instantânea a cada 400ms baseada no recorte da mira
+      // 1. Orientação óptica contínua no visor (foco, luz e centralização)
       const instant = computeInstantVideoScore(video, scratch, reticleRef.current);
       if (instant && active) {
-        setLiveScore((prev) =>
-          prev === null ? instant.score : Math.round(prev * 0.4 + instant.score * 0.6)
-        );
         setLiveStatus(instant.statusText);
       }
 
-      // 2. A cada ~2.0s (5 ticks), consulta a inferência IA no servidor em background
+      // 2. Inferência de Confiança IA periódica (a cada ~1.6s, sem misturar com métricas ópticas locais)
       tickCount++;
-      if (tickCount % 5 === 0 && !inFlightServerCheck && navigator.onLine) {
+      if (tickCount % 4 === 0 && !inFlightServerCheck && navigator.onLine) {
         inFlightServerCheck = true;
         try {
-          const miniFrame = await captureVideoFrame(video, scratch, reticleRef.current, 320, 0.72);
+          const miniFrame = await captureVideoFrame(video, scratch, reticleRef.current, 384, 0.75);
           if (miniFrame && active) {
             const aiRes = await evaluatePhotoScoreBeforeUpload(miniFrame.blob);
-            if (active && typeof aiRes.score === "number") {
+            if (active && typeof aiRes.score === "number" && aiRes.source === "yolo-onnx") {
               setLiveScore(Math.round(aiRes.score));
-              setLiveStatus(
-                aiRes.score >= 65
-                  ? "IA: Traseira bem enquadrada"
-                  : aiRes.score >= 40
-                  ? "IA: Enquadramento aceitável"
-                  : "IA: Centralize a garupa (1m)"
-              );
             }
           }
         } catch {
-          // ignora erro silenciosamente no loop live
+          // ignora erro no loop live
         } finally {
           inFlightServerCheck = false;
         }

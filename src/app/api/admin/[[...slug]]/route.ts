@@ -16,41 +16,6 @@ import bcrypt from "bcryptjs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-let scoreMigrationChecked = false;
-
-async function ensureScoresMigratedOnce() {
-  if (scoreMigrationChecked) return;
-  scoreMigrationChecked = true;
-  try {
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "_cattle_migrations" (
-        "name" TEXT NOT NULL,
-        "applied_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT "_cattle_migrations_pkey" PRIMARY KEY ("name")
-      );
-    `);
-    await prisma.$executeRawUnsafe(`
-      DO $$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM "_cattle_migrations" WHERE "name" = '20261016150000_invert_ai_scores'
-        ) THEN
-          UPDATE "Photo"
-          SET "score" = ROUND((100.0 - "score")::numeric, 1)::double precision
-          WHERE "score" IS NOT NULL
-            AND "score" >= 0
-            AND "score" <= 100;
-
-          INSERT INTO "_cattle_migrations" ("name")
-          VALUES ('20261016150000_invert_ai_scores');
-        END IF;
-      END $$;
-    `);
-  } catch (err) {
-    console.warn("[admin] Aviso ao verificar migração de scores:", err);
-  }
-}
-
 type Context = { params: Promise<{ slug?: string[] }> };
 
 /* ── GET /api/admin/... ── */
@@ -68,7 +33,6 @@ export async function GET(req: Request, context: Context) {
 
   // 1. GET /api/admin/animals
   if (subRoute === "animals") {
-    await ensureScoresMigratedOnce();
     const animals = await prisma.animal.findMany({
       include: {
         photos: {

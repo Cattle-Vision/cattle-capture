@@ -191,9 +191,9 @@ export async function evaluatePhotoScoreBeforeUpload(
   }
 
   return {
-    score: 76.0,
+    score: 50.0,
     lowQuality: false,
     source: "client-optical",
-    feedback: "Avaliação óptica local concluída (modo offline). Pronta para salvar no dataset.",
+    feedback: "Análise óptica preliminar concluída. O modelo YOLO validará no upload.",
   };
 }
