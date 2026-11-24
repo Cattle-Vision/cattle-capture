@@ -1,13 +1,10 @@
 /**
  * Pipeline Client-Side de Compressão e Normalização de Imagens (`src/lib/image-client.ts`).
  *
- * Por que este módulo é crítico para o funcionamento na Vercel:
- * - Smartphones modernos geram fotos de 5 MB a 18 MB (resoluções 4000x3000+ ou HEIC/PNG).
- * - As Serverless Functions da Vercel possuem limite rígido de 4.5 MB no corpo da requisição
- *   (`413 FUNCTION_PAYLOAD_TOO_LARGE`).
- * - Este utilitário redimensiona qualquer arquivo (`File` ou `Blob`) no navegador via HTML5 Canvas
- *   para no máximo `1600px` no maior lado e codifica em JPEG (`quality: 0.86`), gerando arquivos
- *   leves (~150 KB a 450 KB) que são enviados em menos de 1 segundo mesmo em redes móveis rurais (3G/4G).
+ * Otimizado para envio rápido para a API e preservação da resolução e proporção:
+ * - Redimensiona no cliente via Canvas HTML5 mantendo o aspect ratio original.
+ * - Aceita imagens de qualquer proporção e tamanho (512x512, 4000x3000, etc.).
+ * - Comprime em JPEG de alta qualidade gerando payloads leves (< 400KB).
  */
 
 export interface CompressedImageResult {
@@ -20,12 +17,12 @@ export interface CompressedImageResult {
 
 /**
  * Redimensiona e comprime qualquer arquivo de imagem no cliente para JPEG otimizado.
- * Se cropAspect for fornecido (ex: 3 / 4 para garupa bovina), recorta centralizadamente a imagem.
+ * Se cropAspect for omitido, preserva rigorosamente a proporção natural da foto.
  */
 export async function compressImageFile(
   fileOrBlob: File | Blob,
-  maxDimension = 1600,
-  quality = 0.86,
+  maxDimension = 2048,
+  quality = 0.92,
   cropAspect?: number
 ): Promise<CompressedImageResult> {
   const originalSize = fileOrBlob.size;
@@ -46,10 +43,32 @@ export async function compressImageFile(
     }
   };
 
-  // Tenta decodificar via createImageBitmap (rápido e respeita orientação EXIF nos browsers modernos)
+  // Tenta decodificar via createImageBitmap (rápido e respeita orientação EXIF)
   if (typeof window !== "undefined" && "createImageBitmap" in window) {
     try {
       const bitmap = await createImageBitmap(fileOrBlob);
+      const maxOriginal = Math.max(bitmap.width, bitmap.height);
+
+      // Preserva JPEG original de alta resolução sem degradação dupla no Canvas
+      if (
+        !cropAspect &&
+        fileOrBlob.type === "image/jpeg" &&
+        maxOriginal > 0 &&
+        maxOriginal <= maxDimension &&
+        originalSize <= 3.5 * 1024 * 1024
+      ) {
+        const w = bitmap.width;
+        const h = bitmap.height;
+        bitmap.close?.();
+        return {
+          blob: fileOrBlob,
+          width: w,
+          height: h,
+          originalSize,
+          compressedSize: originalSize,
+        };
+      }
+
       const crop = computeCrop(bitmap.width, bitmap.height);
       const { width, height } = calculateDimensions(
         crop.sw,
@@ -80,11 +99,11 @@ export async function compressImageFile(
       }
       bitmap.close?.();
     } catch {
-      // Fallback para HTMLImageElement abaixo
+      // Fallback para HTMLImageElement
     }
   }
 
-  // Fallback universal via HTMLImageElement + ObjectURL
+  // Fallback universal via HTMLImageElement
   return new Promise<CompressedImageResult>((resolve) => {
     const objectUrl = URL.createObjectURL(fileOrBlob);
     const img = new Image();
@@ -194,9 +213,6 @@ function canvasToJpegBlob(
   });
 }
 
-/**
- * Formata bytes em string legível (KB / MB).
- */
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
   if (bytes < 1024 * 1024) {

@@ -1,175 +1,192 @@
 "use client";
 
-/**
- * Página de Login (`src/app/login/page.tsx`).
- *
- * Recursos:
- * - Suporta login de usuários comuns e login direto de Administrador configurado no `.env`
- *   (aceitando tanto o e-mail completo `admin@cattlecapture.com` quanto o atalho `admin`).
- * - Suporte completo a Tema Claro/Escuro (`ThemeToggle`).
- */
-import { useActionState, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { Loader2, Eye, EyeOff, ShieldCheck, ArrowLeft, Lock, Mail, ScanLine, AlertTriangle } from "lucide-react";
-import { loginAction } from "./actions";
+import { useRouter } from "next/navigation";
+import { Loader2, Eye, EyeOff, ArrowLeft, Lock, Mail, AlertTriangle, Check } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
+import { BrandMark } from "@/components/BrandMark";
+import { useAuth } from "@/lib/auth-context";
 
 export default function LoginPage() {
-  const [state, formAction, pending] = useActionState(loginAction, undefined);
+  const router = useRouter();
+  const { login } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      await login(email, password);
+      router.push("/dashboard");
+    } catch (err: any) {
+      setError(err?.message || "E-mail ou senha incorretos");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-[100dvh] flex bg-theme-bg text-theme-primary">
-      {/* Painel lateral — Visível em telas grandes */}
-      <div className="hidden lg:flex w-[420px] xl:w-[460px] flex-col justify-between p-10 bg-slate-900 text-white relative overflow-hidden border-r border-slate-800">
-        <div
+      {/* Painel lateral em Verde Floresta com curvas sutis */}
+      <div
+        className="hidden lg:flex w-[420px] xl:w-[460px] flex-col justify-between p-10 text-white relative overflow-hidden"
+        style={{ backgroundColor: "#123829" }}
+      >
+        <svg
           aria-hidden="true"
-          className="pointer-events-none absolute -bottom-24 -right-24 w-80 h-80 rounded-full bg-emerald-500/20 blur-3xl"
-        />
+          viewBox="0 0 400 600"
+          className="absolute inset-0 w-full h-full opacity-[0.07] pointer-events-none"
+          preserveAspectRatio="none"
+        >
+          <path d="M-40 120 Q140 60 440 180" fill="none" stroke="#FFFFFF" strokeWidth="2" />
+          <path d="M-40 220 Q180 140 440 280" fill="none" stroke="#FFFFFF" strokeWidth="1.5" />
+          <path d="M-40 340 Q160 250 440 390" fill="none" stroke="#FFFFFF" strokeWidth="1.5" />
+          <path d="M-40 460 Q200 380 440 500" fill="none" stroke="#FFFFFF" strokeWidth="2" />
+        </svg>
 
         <div className="relative z-10">
-          <Link href="/" className="inline-flex items-center gap-2.5 group">
-            <div className="w-9 h-9 rounded-md bg-emerald-500 flex items-center justify-center text-white shadow-xs">
-              <ScanLine className="w-5 h-5 stroke-[2.2]" />
-            </div>
+          <Link href="/" className="inline-flex items-center gap-2.5">
+            <BrandMark className="w-9 h-9" />
             <span className="font-bold text-xl tracking-tight">
-              Cattle<span className="text-emerald-400">Capture</span>
+              Cattle<span className="text-emerald-300">Capture</span>
             </span>
           </Link>
 
-          <div className="mt-14">
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-md mb-4">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Dataset para IA de ICS
+          <div className="mt-16">
+            <span className="text-xs font-semibold text-emerald-300/90 block mb-3">
+              Acesso do operador
             </span>
-            <h1 className="text-3xl font-bold leading-tight tracking-tight">
-              Construindo o dataset para a IA de ICS Bovino.
+            <h1 className="text-2xl xl:text-3xl font-bold leading-tight tracking-tight">
+              Manejo, identificação e captura de dataset em um só lugar.
             </h1>
-            <p className="mt-4 text-sm text-slate-300 leading-relaxed">
-              Ajude a alimentar o banco de dados oficial de imagens traseiras do rebanho para
-              viabilizar a primeira IA de predição do Índice de Condição Corporal (ICS / ECC).
+            <p className="mt-4 text-sm text-emerald-100/80 leading-relaxed">
+              Entre para acompanhar o lote, registrar novas fotos guiadas no curral e organizar o
+              acervo fotográfico do rebanho.
             </p>
           </div>
         </div>
 
-        <div className="relative z-10 rounded-lg bg-white/5 border border-white/10 p-4 backdrop-blur-xs">
-          <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider mb-1">
-            Padronização e Qualidade de Dados
-          </p>
-          <p className="text-xs text-slate-300 leading-relaxed">
-            Fotografe a região anatômica posterior do rebanho com nossa mira guiada para garantir enquadramentos ideais no treinamento da IA.
-          </p>
+        <div className="relative z-10 space-y-2.5 pt-6 border-t border-white/15 text-xs text-emerald-100/80">
+          <div className="flex items-center gap-2">
+            <Check className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+            <span>Identificação por apelido, brinco ou Bluetooth</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Check className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+            <span>Histórico sanitário e de movimentações</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Check className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+            <span>Modo offline para uso no pasto</span>
+          </div>
         </div>
       </div>
 
       {/* Área do Formulário */}
       <div className="flex-1 flex flex-col justify-center items-center p-5 sm:p-10">
-        <div className="w-full max-w-md">
-          {/* Topo */}
-          <div className="flex items-center justify-between mb-6">
+        <div className="w-full max-w-md space-y-6">
+          <div className="flex items-center justify-between">
             <Link
               href="/"
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-theme-secondary hover:text-theme-primary"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-theme-secondary hover:text-theme-primary"
             >
               <ArrowLeft className="w-4 h-4" />
-              Início
+              <span>Início</span>
             </Link>
+
             <div className="flex items-center gap-2.5">
               <div className="lg:hidden flex items-center gap-2">
-                <div className="w-7 h-7 rounded-md bg-emerald-600 flex items-center justify-center text-white">
-                  <ScanLine className="w-4 h-4 stroke-[2.2]" />
-                </div>
-                <span className="font-bold text-sm text-theme-primary">
-                  Cattle<span className="text-emerald-600 dark:text-emerald-400">Capture</span>
-                </span>
+                <BrandMark className="w-7 h-7" />
+                <span className="font-bold text-sm text-theme-primary">CattleCapture</span>
               </div>
               <ThemeToggle />
             </div>
           </div>
 
-          <div className="card p-5 sm:p-7">
-            <h2 className="text-xl sm:text-2xl font-bold text-theme-primary tracking-tight mb-1">
-              Acessar conta
+          <div>
+            <h2 className="text-2xl font-bold text-theme-primary tracking-tight">
+              Entrar na conta
             </h2>
-            <p className="text-xs sm:text-sm text-theme-secondary mb-5">
-              Entre com suas credenciais de acesso para gerenciar o rebanho.
+            <p className="text-xs sm:text-sm text-theme-secondary mt-1">
+              Informe seu e-mail e senha para acessar o sistema.
             </p>
-
-            {state?.error && (
-              <div className="error-banner mb-4 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
-                <span>{state.error}</span>
-              </div>
-            )}
-
-            <form action={formAction} className="flex flex-col gap-5">
-              <div>
-                <label className="field-label" htmlFor="email">
-                  E-mail
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    id="email"
-                    name="email"
-                    type="text"
-                    required
-                    className="field-input pl-10"
-                    placeholder="seu@email.com"
-                    autoComplete="username"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="field-label" htmlFor="password">
-                  Senha
-                </label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    id="password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    required
-                    className="field-input pl-10 pr-10"
-                    placeholder="••••••••"
-                    autoComplete="current-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-theme-muted hover:text-theme-primary p-1"
-                    tabIndex={-1}
-                    aria-label="Mostrar ou ocultar senha"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={pending}
-                className="btn-primary w-full py-3.5 text-base mt-1"
-              >
-                {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                {pending ? "Autenticando…" : "Entrar no Sistema"}
-              </button>
-            </form>
-
-            <div className="mt-6 pt-5 border-t border-theme text-center">
-              <p className="text-sm text-theme-secondary">
-                Ainda não possui conta de operador?{" "}
-                <Link
-                  href="/register"
-                  className="font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
-                >
-                  Criar conta grátis
-                </Link>
-              </p>
-            </div>
           </div>
+
+          {error && (
+            <div className="error-banner flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="field-label" htmlFor="email">
+                E-mail
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="field-input pl-10"
+                  placeholder="seu@email.com"
+                  autoComplete="username"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="field-label" htmlFor="password">
+                Senha
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="field-input pl-10 pr-10"
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-theme-muted hover:text-theme-primary p-1"
+                  tabIndex={-1}
+                  aria-label="Mostrar ou ocultar senha"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <button type="submit" disabled={loading} className="btn-primary w-full py-3 text-sm sm:text-base">
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>{loading ? "Entrando…" : "Entrar"}</span>
+            </button>
+          </form>
+
+          <p className="text-sm text-theme-secondary pt-4 border-t border-theme text-center">
+            Ainda não tem conta?{" "}
+            <Link href="/register" className="font-semibold text-brand hover:underline">
+              Criar cadastro
+            </Link>
+          </p>
         </div>
       </div>
     </div>

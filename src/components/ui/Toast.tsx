@@ -4,12 +4,10 @@
  * Sistema Unificado de Notificações (Toasts) e Modais de Confirmação/Alerta Internos (`src/components/ui/Toast.tsx`).
  *
  * Arquitetura:
- * - Elimina por completo os popups nativos do navegador (`window.confirm` e `window.alert`),
- *   que bloqueiam a thread da UI e degradam a experiência mobile PWA.
- * - Fornece `toast(message, type)` para notificações não-bloqueantes com auto-dismiss.
- * - Fornece `confirm(options)` retornando uma `Promise<boolean>` resolvida via modal interno.
- * - Fornece `alert(options)` retornando uma `Promise<void>` resolvida quando o usuário clica em fechar/entendi.
- * - Suporte integral ao tema Claro/Escuro (CSS variables), safe-area do iOS e acessibilidade via teclado (Escape).
+ * - Elimina por completo os popups nativos do navegador (window.confirm e window.alert).
+ * - Fornece toast(message, type) para notificações não-bloqueantes com auto-dismiss.
+ * - Fornece confirm(options) retornando Promise<boolean> resolvida via modal interno.
+ * - Fornece alert(options) retornando Promise<void> resolvida ao fechar.
  */
 
 import {
@@ -147,7 +145,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setModalState(null);
   };
 
-  // Suporte a tecla Escape para fechar modal
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && modalState) {
@@ -161,7 +158,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const typeStyles: Record<ToastType, string> = {
     success: 'bg-emerald-600 border-emerald-500 text-white',
     error: 'bg-red-600 border-red-500 text-white',
-    info: 'bg-slate-900 border-slate-700 text-white',
+    info: 'bg-slate-900 dark:bg-slate-800 border-slate-700 text-white',
   };
 
   return (
@@ -177,21 +174,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={t.id}
             className={`
-              flex items-center gap-2.5 px-4 py-3 rounded-lg border text-sm font-semibold
+              flex items-center gap-2.5 px-4 py-3 rounded-[10px] border text-sm font-semibold
               shadow-xl backdrop-blur-md pointer-events-auto max-w-sm w-full
               animate-slide-up
               ${typeStyles[t.type]}
             `}
           >
-            {t.type === 'success' && <Check className="w-4 h-4 shrink-0 text-emerald-200 stroke-[3]" />}
-            {t.type === 'error' && <AlertTriangle className="w-4 h-4 shrink-0 text-red-200 stroke-[2.5]" />}
-            {t.type === 'info' && <Info className="w-4 h-4 shrink-0 text-slate-300 stroke-[2.2]" />}
+            {t.type === 'success' && <Check className="w-4 h-4 shrink-0 text-emerald-200 stroke-[2.5]" />}
+            {t.type === 'error' && <AlertTriangle className="w-4 h-4 shrink-0 text-red-200 stroke-[2.2]" />}
+            {t.type === 'info' && <Info className="w-4 h-4 shrink-0 text-slate-300 stroke-[2]" />}
             <span className="leading-snug">{t.message}</span>
           </div>
         ))}
       </div>
 
-      {/* Modal Interno de Confirmação / Alerta (Substitui popups nativos do navegador) */}
+      {/* Modal Interno de Confirmação / Alerta */}
       {modalState && (
         <div
           role="dialog"
@@ -205,7 +202,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <div className="p-5 sm:p-6">
               <div className="flex items-start gap-3">
                 <div
-                  className={`w-9 h-9 rounded-md flex items-center justify-center shrink-0 ${
+                  className={`w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0 ${
                     modalState.variant === 'danger'
                       ? 'bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/25'
                       : modalState.variant === 'success'

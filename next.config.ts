@@ -1,22 +1,23 @@
 import type { NextConfig } from "next";
 
 /**
- * Configuração do Next.js otimizada para deploy Serverless na Vercel.
- * - `serverExternalPackages`: impede que o bundler tente empacotar binários C++ nativos
- *   (`sharp` e `onnxruntime-node`), garantindo resolução nativa no runtime Node.js da Vercel.
- * - `outputFileTracingIncludes`: garante que o modelo `identifier.onnx` seja incluído
- *   estritamente nas funções serverless de fotos e gestão que executam a inferência IA.
- * - `outputFileTracingExcludes`: remove binários de desenvolvimento, compiladores e caches
- *   pesados dos bundles das funções serverless para mantê-las enxutas (< 50 MB) e
- *   respeitar o limite de 10 GB de Deployment Storage da Vercel.
+ * Configuração do Next.js para o CattleCapture (Monolito Next.js + Prisma + ONNX).
+ * Inclui cache imutável para modelos Edge AI locais (`/models/*`, `/ort/*`) e
+ * tracing dos modelos ONNX nas Serverless Functions de API.
  */
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["192.168.1.5", "127.0.0.1", "localhost"],
   serverExternalPackages: ["sharp", "onnxruntime-node"],
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "**" },
+      { protocol: "http", hostname: "**" },
+    ],
+  },
   outputFileTracingIncludes: {
-    "/api/photos/[[...slug]]": ["./identifier.onnx"],
-    "/api/admin/[[...slug]]": ["./identifier.onnx"],
-    "/api/animals/[[...slug]]": ["./identifier.onnx"],
+    "/api/photos/[[...slug]]": ["./identifier.onnx", "./models/*.onnx"],
+    "/api/admin/[[...slug]]": ["./identifier.onnx", "./models/*.onnx"],
+    "/api/animals/[[...slug]]": ["./identifier.onnx", "./models/*.onnx"],
   },
   outputFileTracingExcludes: {
     "*": [
@@ -27,8 +28,21 @@ const nextConfig: NextConfig = {
       "node_modules/webpack",
       ".next/cache/**",
       "storage/uploads/**",
+      ".venv/**",
       "*.md",
     ],
+  },
+  async headers() {
+    return [
+      {
+        source: "/models/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
+        source: "/ort/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+    ];
   },
   async rewrites() {
     return [

@@ -1,157 +1,235 @@
 "use client";
 
 /**
- * Painel Principal do Operador (`src/app/dashboard/page.tsx`).
- *
- * Melhorias Arquiteturais e Visuais:
- * - Renderiza miniaturas via `getPhotoUrl(lastPhoto.id)` (`/api/photos/[id]`), eliminando
- *   erros 403 com Vercel Blob privado.
- * - Exibe KPIs do rebanho em tempo real (Total de Animais, Capturas, Peso Médio e Cobertura).
- * - Suporta busca instantânea combinada com filtros de status fotográfico ("Todos", "Com fotos", "Sem fotos").
- * - Suporte integral a Tema Claro/Escuro (`ThemeToggle`) e barra inferior Mobile PWA (`MobileNav`).
+ * Painel do Rebanho (`src/app/dashboard/page.tsx`).
  */
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Plus,
-  ShieldCheck,
   Camera,
-  ScanLine,
-  LogOut,
   Search,
-  Activity,
-  Scale,
-  Calendar,
-  Images,
   ChevronRight,
-  Filter,
-  Loader2,
   Layers,
-  SearchX,
+  Copy,
+  Check,
+  LayoutGrid,
+  List,
+  RefreshCw,
+  MapPin,
+  Users,
+  Images,
+  ShieldCheck,
 } from "lucide-react";
 import { Animal, getPhotoUrl } from "@/lib/types";
-import { logoutAction } from "@/app/login/actions";
-import ThemeToggle from "@/components/ThemeToggle";
-import MobileNav from "@/components/MobileNav";
+import { AsyncPhoto } from "@/components/AsyncPhoto";
+import {
+  apiFetchCached,
+  getApiCacheSnapshot,
+  invalidateApiCache,
+  prefetchApi,
+  readPersistedApiCache,
+} from "@/lib/api";
+import { getHerdSnapshot, saveHerdSnapshot } from "@/lib/sync";
+import { useAuth } from "@/lib/auth-context";
+import AppShell from "@/components/AppShell";
 import { useToast } from "@/components/ui/Toast";
 
-type FilterMode = "all" | "with_photos" | "without_photos";
+type FilterMode = "all" | "owned" | "shared" | "with_photos" | "without_photos";
+type ViewMode = "grid" | "list";
 
-function Skeleton() {
+const ANIMALS_SUMMARY_ENDPOINT = "/api/animals?summary=1";
+
+function getPhotoCount(animal: Animal): number {
+  return animal.photoCount ?? animal.photos?.length ?? 0;
+}
+
+function CardSkeleton() {
   return (
     <div className="card overflow-hidden">
       <div className="aspect-[16/10] skeleton rounded-none" />
       <div className="p-4 flex flex-col gap-3">
         <div className="h-4 skeleton w-2/3" />
         <div className="h-3 skeleton w-1/2" />
-        <div className="h-10 skeleton w-full rounded-xl mt-1" />
+        <div className="h-10 skeleton w-full rounded-[10px] mt-1" />
       </div>
     </div>
   );
 }
 
-function AnimalCard({ animal }: { animal: Animal }) {
+function FramingBadge({ animal }: { animal: Animal }) {
   const lastPhoto = animal.photos?.[0];
-  const photoUrl = lastPhoto ? getPhotoUrl(lastPhoto.id) : null;
-  const [imgErr, setImgErr] = useState(false);
-  const label = animal.name || animal.tag;
-  const photoCount = animal.photos?.length ?? 0;
-  const cameraUrl = `/camera?animalId=${animal.id}&animalName=${encodeURIComponent(label)}`;
+  if (lastPhoto && typeof lastPhoto.score === "number") {
+    const pct = Math.round(lastPhoto.score);
+    const ok = pct >= 40;
+    return (
+      <span
+        title={`Qualidade de enquadramento da última captura: ${pct}%`}
+        className={`inline-flex items-center px-2 py-0.5 rounded-[7px] text-xs font-bold tabular-nums shrink-0 ${
+          ok
+            ? "bg-brand text-white"
+            : "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+        }`}
+      >
+        Enquadr. {pct}%
+      </span>
+    );
+  }
+  const photoCount = getPhotoCount(animal);
+  if (photoCount > 0) {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-[7px] text-[11px] font-semibold bg-brand-soft text-brand shrink-0 tabular-nums">
+        {photoCount} {photoCount === 1 ? "foto" : "fotos"}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-[7px] text-[11px] font-medium bg-theme-surface-2 text-theme-muted border border-theme shrink-0">
+      Sem captura
+    </span>
+  );
+}
+
+function AnimalCard({ animal, currentUserId }: { animal: Animal; currentUserId?: number }) {
+  const { toast } = useToast();
+  const [copied, setCopied] = useState(false);
+
+  const lastPhoto = animal.photos?.[0];
+  const photoUrl = lastPhoto ? getPhotoUrl(lastPhoto.id, 480) : null;
+  const displayName = animal.name?.trim() || "Sem apelido";
+  const photoCount = getPhotoCount(animal);
+  const cameraUrl = `/camera?animalId=${animal.id}&animalName=${encodeURIComponent(displayName)}`;
   const bestScore =
     lastPhoto && typeof lastPhoto.score === "number" ? Math.round(lastPhoto.score) : null;
 
+  const isShared = animal.isShared || (currentUserId !== undefined && animal.ownerId !== currentUserId);
+
+  const copyTag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigator.clipboard.writeText(animal.tag);
+    setCopied(true);
+    toast("Identificador copiado.", "info");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const shortTag =
+    animal.tag.length > 14 ? `${animal.tag.slice(0, 6)}…${animal.tag.slice(-4)}` : animal.tag;
+
   return (
-    <div className="card overflow-hidden group relative hover:shadow-lg hover:border-emerald-500/60 transition-all duration-200 flex flex-col justify-between">
-      {/* Link principal cobrindo a área superior/informativa */}
+    <div className="card overflow-hidden group flex flex-col justify-between hover:border-theme-strong transition">
       <Link
         href={`/animal/${animal.id}`}
+        onMouseEnter={() => prefetchApi(`/api/animals/${animal.id}`)}
+        onTouchStart={() => prefetchApi(`/api/animals/${animal.id}`)}
         className="block focus:outline-none"
-        aria-label={`Ver ficha de ${label}`}
+        aria-label={`Abrir ficha de ${displayName}`}
       >
-        {/* Capa Fotográfica */}
-        <div className="aspect-[16/10] relative overflow-hidden bg-theme-surface-2">
-          {photoUrl && !imgErr ? (
-            <img
+        {/* Imagem limpa sem excesso de etiquetas */}
+        <div className="aspect-[16/10] relative overflow-hidden bg-theme-surface-2 border-b border-theme">
+          {photoUrl ? (
+            <AsyncPhoto
               src={photoUrl}
-              alt={label}
-              loading="lazy"
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-              onError={() => setImgErr(true)}
+              alt={displayName}
+              loadingLabel="Carregando…"
+              className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300"
+              fallbackIcon={<Layers className="w-7 h-7 opacity-35" />}
             />
           ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 bg-theme-surface-2 text-theme-muted">
-              <Layers className="w-8 h-8 opacity-40 stroke-[1.5]" />
-              <span className="text-[11px] font-medium text-theme-muted">Sem foto</span>
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-theme-muted">
+              <Layers className="w-6 h-6 opacity-40" />
+              <span className="text-[11px] font-medium">Sem capturas</span>
             </div>
           )}
 
-          {/* Gradiente sutil */}
-          <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/65 to-transparent pointer-events-none" />
-
-          {/* Badge Brinco (Monospace) */}
-          <div className="absolute top-2 left-2 font-mono-tag text-xs font-bold px-2 py-0.5 rounded-md bg-slate-900/85 text-white backdrop-blur-md shadow-xs tracking-wider">
-            {animal.tag}
-          </div>
-
-          {/* Confiança IA se disponível */}
-          {bestScore !== null && (
-            <div className="absolute top-2 right-2 inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-600/90 text-white backdrop-blur-md shadow-xs">
-              <Activity className="w-3 h-3" />
-              Confiança {bestScore}%
-            </div>
+          {isShared && (
+            <span
+              title="Animal em guarda compartilhada"
+              className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-[7px] bg-black/65 text-white backdrop-blur-xs"
+            >
+              <Users className="w-3 h-3" />
+              <span>Compartilhado</span>
+            </span>
           )}
 
-          {/* Contador de fotos */}
-          <div className="absolute bottom-2 right-2 inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-black/65 text-white backdrop-blur-md">
-            <Images className="w-3 h-3 text-emerald-400" />
-            {photoCount} {photoCount === 1 ? "foto" : "fotos"}
+          <div className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 text-[11px] font-semibold tabular-nums px-2 py-0.5 rounded-[7px] bg-black/65 text-white backdrop-blur-xs">
+            <Images className="w-3 h-3" />
+            <span>{photoCount}</span>
           </div>
         </div>
 
-        {/* Informações do Animal */}
-        <div className="p-4 pb-3">
-          <div className="flex items-start justify-between gap-2 mb-1.5">
-            <h3 className="font-extrabold text-base text-theme-primary truncate group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
-              {animal.name ? `${animal.name}` : `Brinco ${animal.tag}`}
-            </h3>
-            <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 shrink-0">
-              {animal.breed}
-            </span>
+        {/* Informações estruturadas abaixo da foto */}
+        <div className="p-4 space-y-2.5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="font-bold text-[15px] text-theme-primary truncate group-hover:text-brand transition-colors">
+                {displayName}
+              </h3>
+              <p className="text-xs text-theme-secondary truncate mt-0.5">
+                {animal.breed} — {animal.sex}
+              </p>
+            </div>
+            <FramingBadge animal={animal} />
           </div>
 
-          <div className="flex items-center gap-3 text-xs font-medium text-theme-secondary">
-            <span>{animal.sex}</span>
-            <span>•</span>
-            <span className="inline-flex items-center gap-1">
-              <Scale className="w-3.5 h-3.5 text-theme-muted" />
-              {animal.weight} kg
-            </span>
-            <span>•</span>
-            <span className="inline-flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5 text-theme-muted" />
-              {animal.age}m
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[var(--border-subtle)] text-xs text-theme-secondary tabular-nums">
+            <div className="flex items-center gap-3">
+              <span className="font-semibold text-theme-primary">{animal.weight} kg</span>
+              <span>{animal.age} meses</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={copyTag}
+              title={`Copiar identificador: ${animal.tag}`}
+              className="inline-flex items-center gap-1 text-[11px] font-mono-tag text-theme-muted hover:text-theme-primary transition"
+            >
+              <span>{shortTag}</span>
+              {copied ? (
+                <Check className="w-3 h-3 text-brand" />
+              ) : (
+                <Copy className="w-3 h-3 opacity-60" />
+              )}
+            </button>
           </div>
+
+          {(animal.location || bestScore !== null) && (
+            <div className="flex items-center justify-between gap-2 text-[11px] text-theme-muted">
+              {animal.location ? (
+                <span className="inline-flex items-center gap-1 truncate">
+                  <MapPin className="w-3 h-3 text-brand shrink-0" />
+                  <span className="truncate">{animal.location}</span>
+                </span>
+              ) : (
+                <span />
+              )}
+
+              {bestScore !== null && (
+                <span className="tabular-nums shrink-0 font-medium text-theme-secondary">
+                  Enquadramento {bestScore}%
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </Link>
 
-      {/* Ações Rápidas */}
-      <div className="px-4 pb-4 pt-1 flex items-center gap-2">
+      <div className="px-4 pb-4 flex items-center gap-2">
         <Link
           href={cameraUrl}
-          className="btn-primary flex-1 py-2.5 text-xs"
-          aria-label={`Fotografar ${label}`}
+          className="btn-primary flex-1 !min-h-[38px] !py-1.5 text-xs"
+          aria-label={`Fotografar ${displayName}`}
         >
-          <Camera className="w-4 h-4" />
-          Fotografar
+          <Camera className="w-3.5 h-3.5" />
+          <span>Fotografar</span>
         </Link>
         <Link
           href={`/animal/${animal.id}`}
-          className="btn-secondary px-3 py-2.5 text-xs"
-          title="Abrir ficha e galeria"
+          className="btn-secondary !min-h-[38px] !py-1.5 !px-3 text-xs"
+          title="Abrir ficha"
         >
-          Ficha
+          <span>Ficha</span>
           <ChevronRight className="w-3.5 h-3.5" />
         </Link>
       </div>
@@ -159,260 +237,340 @@ function AnimalCard({ animal }: { animal: Animal }) {
   );
 }
 
+function AnimalTableRow({ animal, currentUserId }: { animal: Animal; currentUserId?: number }) {
+  const lastPhoto = animal.photos?.[0];
+  const thumbUrl = lastPhoto ? getPhotoUrl(lastPhoto.id, 240) : null;
+  const displayName = animal.name?.trim() || "Sem apelido";
+  const photoCount = getPhotoCount(animal);
+  const isShared = animal.isShared || (currentUserId !== undefined && animal.ownerId !== currentUserId);
+  const cameraUrl = `/camera?animalId=${animal.id}&animalName=${encodeURIComponent(displayName)}`;
+
+  return (
+    <div className="p-3 sm:px-4 flex items-center gap-3.5 hover:bg-theme-surface-2/60 transition-colors">
+      <Link
+        href={`/animal/${animal.id}`}
+        className="w-16 h-12 rounded-[8px] overflow-hidden bg-theme-surface-2 shrink-0 flex items-center justify-center border border-theme"
+      >
+        {thumbUrl ? (
+          <AsyncPhoto
+            src={thumbUrl}
+            alt={displayName}
+            compact
+            fallbackIcon={<Layers className="w-4 h-4 text-theme-muted opacity-40" />}
+          />
+        ) : (
+          <Layers className="w-4 h-4 text-theme-muted opacity-40" />
+        )}
+      </Link>
+
+      <Link
+        href={`/animal/${animal.id}`}
+        onMouseEnter={() => prefetchApi(`/api/animals/${animal.id}`)}
+        onTouchStart={() => prefetchApi(`/api/animals/${animal.id}`)}
+        className="min-w-0 flex-1 grid grid-cols-1 md:grid-cols-12 gap-1.5 md:gap-4 items-center"
+      >
+        <div className="md:col-span-4 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-sm text-theme-primary truncate">{displayName}</span>
+            {isShared && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-500/12 text-sky-700 dark:text-sky-300 shrink-0">
+                Compartilhado
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] font-mono-tag text-theme-muted truncate">{animal.tag}</p>
+        </div>
+
+        <div className="md:col-span-3 text-xs text-theme-secondary tabular-nums truncate">
+          {animal.breed}, {animal.sex} — {animal.weight} kg
+        </div>
+
+        <div className="md:col-span-3 text-xs text-theme-secondary truncate">
+          {animal.location || `${photoCount} ${photoCount === 1 ? "foto" : "fotos"}`}
+        </div>
+
+        <div className="md:col-span-2 flex md:justify-end">
+          <FramingBadge animal={animal} />
+        </div>
+      </Link>
+
+      <div className="flex items-center gap-1.5 shrink-0">
+        <Link href={cameraUrl} className="btn-primary !py-1.5 !px-3 !min-h-[36px] text-xs">
+          <Camera className="w-3.5 h-3.5" />
+          <span className="hidden lg:inline">Fotografar</span>
+        </Link>
+        <Link href={`/animal/${animal.id}`} className="btn-secondary !py-1.5 !px-3 !min-h-[36px] text-xs">
+          <span>Ficha</span>
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
-  const [animals, setAnimals] = useState<Animal[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const initialSnapshot = getApiCacheSnapshot<Animal[]>(ANIMALS_SUMMARY_ENDPOINT);
+  const [animals, setAnimals] = useState<Animal[]>(() =>
+    Array.isArray(initialSnapshot) ? initialSnapshot : []
+  );
+  const [loading, setLoading] = useState<boolean>(() => !Array.isArray(initialSnapshot));
+  const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
-  const [recalibratingHerd, setRecalibratingHerd] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [usingOfflineCache, setUsingOfflineCache] = useState(false);
   const router = useRouter();
-  const { toast, confirm } = useToast();
+  const { user, isAdmin, loading: authLoading } = useAuth();
 
-  const handleRecalibrateHerd = async () => {
-    if (recalibratingHerd) return;
-    const ok = await confirm({
-      title: "Recalcular Confiança do Rebanho",
-      message:
-        "Deseja recalcular a confiança de todas as fotos dos seus animais com o modelo de IA calibrado?",
-      confirmText: "Recalcular Rebanho",
-      variant: "primary",
-    });
-    if (!ok) return;
+  const currentUserId = user ? Number(user.id) : undefined;
 
-    setRecalibratingHerd(true);
-    try {
-      const res = await fetch("/api/animals/recalibrate", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Falha ao recalcular");
-
-      toast(data.message || `${data.updatedCount ?? 0} fotos recalculadas com sucesso!`, "success");
-
-      const freshRes = await fetch("/api/animals");
-      if (freshRes.ok) {
-        const freshAnimals = await freshRes.json();
-        if (Array.isArray(freshAnimals)) setAnimals(freshAnimals);
+  const loadAnimals = useCallback(
+    async (forceRefresh = false) => {
+      if (forceRefresh) {
+        setRefreshing(true);
+        invalidateApiCache("/api/animals");
       }
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Erro ao recalcular confiança", "error");
-    } finally {
-      setRecalibratingHerd(false);
-    }
-  };
+      try {
+        const data = await apiFetchCached<Animal[]>(
+          ANIMALS_SUMMARY_ENDPOINT,
+          forceRefresh ? 0 : 15_000
+        );
+        if (Array.isArray(data)) {
+          setAnimals(data);
+          setUsingOfflineCache(false);
+          saveHerdSnapshot("herd_summary", data).catch(() => {});
+        }
+      } catch (err: any) {
+        if (err?.message?.includes("401") || err?.message?.includes("Token")) {
+          router.push("/login");
+          return;
+        }
+        const offlineList = await getHerdSnapshot<Animal[]>("herd_summary");
+        if (Array.isArray(offlineList) && offlineList.length > 0) {
+          setAnimals(offlineList);
+          setUsingOfflineCache(true);
+        }
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [router]
+  );
 
   useEffect(() => {
-    fetch("/api/animals")
-      .then((r) => {
-        if (r.status === 401) {
-          router.push("/login");
-          return null;
+    if (!authLoading) {
+      if (!user) {
+        router.push("/login");
+      } else {
+        if (!Array.isArray(initialSnapshot)) {
+          const persisted = readPersistedApiCache<Animal[]>(ANIMALS_SUMMARY_ENDPOINT);
+          if (Array.isArray(persisted) && persisted.length > 0) {
+            setAnimals(persisted);
+            setLoading(false);
+          } else {
+            getHerdSnapshot<Animal[]>("herd_summary")
+              .then((offlineList) => {
+                if (Array.isArray(offlineList) && offlineList.length > 0) {
+                  setAnimals((prev) => (prev.length === 0 ? offlineList : prev));
+                  setLoading(false);
+                }
+              })
+              .catch(() => {});
+          }
         }
-        return r.json();
-      })
-      .then((d) => {
-        if (Array.isArray(d)) setAnimals(d);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-
-    fetch("/api/admin/animals")
-      .then((r) => {
-        if (r.ok) setIsAdmin(true);
-      })
-      .catch(() => {});
-  }, [router]);
+        loadAnimals(false);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, user, router, loadAnimals]);
 
   const stats = useMemo(() => {
     const totalAnimals = animals.length;
-    const totalPhotos = animals.reduce((acc, a) => acc + (a.photos?.length ?? 0), 0);
-    const withPhotos = animals.filter((a) => (a.photos?.length ?? 0) > 0).length;
+    const totalPhotos = animals.reduce((acc, a) => acc + getPhotoCount(a), 0);
+    const withPhotos = animals.filter((a) => getPhotoCount(a) > 0).length;
+    const withoutPhotos = totalAnimals - withPhotos;
+    const sharedCount = animals.filter(
+      (a) => a.isShared || (currentUserId !== undefined && a.ownerId !== currentUserId)
+    ).length;
+    const ownedCount = totalAnimals - sharedCount;
     const avgWeight =
       totalAnimals > 0
         ? Math.round(animals.reduce((acc, a) => acc + (Number(a.weight) || 0), 0) / totalAnimals)
         : 0;
-    const coverage = totalAnimals > 0 ? Math.round((withPhotos / totalAnimals) * 100) : 0;
-    return { totalAnimals, totalPhotos, withPhotos, avgWeight, coverage };
-  }, [animals]);
+    return {
+      totalAnimals,
+      totalPhotos,
+      withPhotos,
+      withoutPhotos,
+      sharedCount,
+      ownedCount,
+      avgWeight,
+    };
+  }, [animals, currentUserId]);
 
   const filtered = useMemo(() => {
+    const q = query.trim().toUpperCase();
     return animals.filter((a) => {
-      const photoCount = a.photos?.length ?? 0;
+      const photoCount = getPhotoCount(a);
+      const isShared = a.isShared || (currentUserId !== undefined && a.ownerId !== currentUserId);
+
+      if (filterMode === "owned" && isShared) return false;
+      if (filterMode === "shared" && !isShared) return false;
       if (filterMode === "with_photos" && photoCount === 0) return false;
       if (filterMode === "without_photos" && photoCount > 0) return false;
 
-      const q = query.trim().toUpperCase();
       if (!q) return true;
       return (
         a.tag.toUpperCase().includes(q) ||
-        a.name.toUpperCase().includes(q) ||
+        (a.name && a.name.toUpperCase().includes(q)) ||
+        (a.location && a.location.toUpperCase().includes(q)) ||
+        (a.locationAddress && a.locationAddress.toUpperCase().includes(q)) ||
         a.breed.toUpperCase().includes(q)
       );
     });
-  }, [animals, query, filterMode]);
+  }, [animals, query, filterMode, currentUserId]);
+
+  const filterTabs = useMemo(() => {
+    return [
+      { id: "all" as const, label: "Todos", count: stats.totalAnimals },
+      ...(stats.sharedCount > 0
+        ? [
+            { id: "owned" as const, label: "Meus", count: stats.ownedCount },
+            { id: "shared" as const, label: "Compartilhados", count: stats.sharedCount },
+          ]
+        : []),
+      { id: "with_photos" as const, label: "Com fotos", count: stats.withPhotos },
+      { id: "without_photos" as const, label: "Sem fotos", count: stats.withoutPhotos },
+    ];
+  }, [stats]);
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-theme-bg text-theme-primary">
-      {/* Header Glassmorphic Compacto */}
-      <header className="glass-header sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-12 sm:h-14 flex items-center justify-between gap-1.5 sm:gap-2">
-          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-md bg-emerald-600 flex items-center justify-center text-white shrink-0">
-              <ScanLine className="w-4 h-4 stroke-[2.2]" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-sm sm:text-base font-bold text-theme-primary truncate">
-                Cattle<span className="text-emerald-600 dark:text-emerald-400">Capture</span>
-              </h1>
-              <p className="text-[10px] sm:text-[11px] font-medium text-theme-secondary truncate hidden xs:block">
-                {loading
-                  ? "Carregando…"
-                  : `${stats.totalAnimals} animais · ${stats.totalPhotos} fotos para IA de ICS`}
-              </p>
-            </div>
+    <AppShell
+      title="Rebanho"
+      subtitle={
+        loading
+          ? "Carregando…"
+          : `${stats.totalAnimals} ${stats.totalAnimals === 1 ? "animal cadastrado" : "animais cadastrados"}`
+      }
+    >
+      <div className="space-y-5">
+        {!loading && usingOfflineCache && (
+          <div className="px-4 py-2.5 rounded-[10px] bg-sky-500/10 border border-sky-500/25 text-xs text-sky-700 dark:text-sky-300">
+            Exibindo cópia salva no aparelho. Novos registros sincronizam ao reconectar.
           </div>
+        )}
 
-          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-            <ThemeToggle />
-            {isAdmin && (
-              <Link
-                href="/admin"
-                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 min-h-[38px] text-xs font-semibold rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition shrink-0"
-                title="Central Administrativa"
-                aria-label="Central Administrativa"
-              >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Admin</span>
-              </Link>
-            )}
-            <Link
-              href="/identify"
-              className="hidden sm:inline-flex btn-secondary py-1.5 px-3 min-h-[38px] text-xs"
-            >
-              <ScanLine className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              Identificar Brinco
-            </Link>
-            <Link
-              href="/animal/new"
-              className="hidden sm:inline-flex btn-primary py-1.5 px-3 min-h-[38px] text-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Novo Animal
-            </Link>
-            <form action={logoutAction} className="shrink-0">
-              <button
-                type="submit"
-                className="p-2 rounded-md min-w-[38px] min-h-[38px] flex items-center justify-center text-theme-secondary hover:text-red-500 hover:bg-red-500/10 active:scale-95 transition touch-manipulation"
-                title="Sair da conta"
-                aria-label="Sair da conta"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </form>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 max-w-6xl mx-auto w-full px-3 sm:px-6 py-5 pb-20 sm:pb-8">
-        {/* KPIs do Rebanho */}
+        {/* Strip único de indicadores */}
         {!loading && animals.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
-            <div className="card p-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-theme-muted">
-                Animais
-              </p>
-              <p className="text-2xl font-extrabold text-theme-primary mt-1">
+          <div className="card grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-[var(--border-subtle)] overflow-hidden">
+            <div className="p-4">
+              <p className="text-[11px] font-semibold text-theme-muted">Rebanho ativo</p>
+              <p className="text-2xl font-bold tabular-nums text-theme-primary mt-1">
                 {stats.totalAnimals}
               </p>
-              <p className="text-[11px] text-theme-secondary mt-0.5">Cadastrados no painel</p>
             </div>
-            <div className="card p-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                Dataset ICS
+            <div className="p-4">
+              <p className="text-[11px] font-semibold text-brand">Com capturas</p>
+              <p className="text-2xl font-bold tabular-nums text-brand mt-1">
+                {stats.withPhotos}
               </p>
-              <p className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
+            </div>
+            <div className="p-4">
+              <p className="text-[11px] font-semibold text-theme-muted">Capturas totais</p>
+              <p className="text-2xl font-bold tabular-nums text-theme-primary mt-1">
                 {stats.totalPhotos}
               </p>
-              <p className="text-[11px] text-theme-secondary mt-0.5">Fotos de traseira</p>
             </div>
-            <div className="card p-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-theme-muted">
-                Cobertura
-              </p>
-              <p className="text-2xl font-extrabold text-theme-primary mt-1">
-                {stats.coverage}%
-              </p>
-              <p className="text-[11px] text-theme-secondary mt-0.5">
-                {stats.withPhotos} de {stats.totalAnimals} com foto
-              </p>
-            </div>
-            <div className="card p-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-theme-muted">
-                Peso Médio
-              </p>
-              <p className="text-2xl font-extrabold text-theme-primary mt-1">
+            <div className="p-4">
+              <p className="text-[11px] font-semibold text-theme-muted">Peso médio</p>
+              <p className="text-2xl font-bold tabular-nums text-theme-primary mt-1">
                 {stats.avgWeight}{" "}
-                <span className="text-sm font-semibold text-theme-secondary">kg</span>
+                <span className="text-xs font-medium text-theme-secondary">kg</span>
               </p>
-              <p className="text-[11px] text-theme-secondary mt-0.5">Média do lote</p>
             </div>
           </div>
         )}
 
-        {/* Barra de Busca e Filtros */}
+        {/* Barra de busca e filtros */}
         {!loading && animals.length > 0 && (
-          <div className="flex flex-col sm:flex-row gap-3 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-muted pointer-events-none" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Buscar por brinco (ex: NEL-0142), apelido ou raça…"
-                className="field-input pl-10"
-              />
+          <div className="space-y-3">
+            <div className="flex gap-2.5 items-center">
+              <div className="relative flex-1">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-muted pointer-events-none" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Buscar por apelido, brinco, raça ou fazenda…"
+                  className="field-input pl-10"
+                />
+              </div>
+
+              <div className="hidden sm:flex items-center bg-theme-surface border border-theme rounded-[10px] p-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("grid")}
+                  aria-label="Visualização em grade"
+                  title="Grade"
+                  className={`p-1.5 rounded-[7px] transition ${
+                    viewMode === "grid"
+                      ? "bg-brand text-white"
+                      : "text-theme-secondary hover:text-theme-primary"
+                  }`}
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("list")}
+                  aria-label="Visualização em tabela"
+                  title="Lista"
+                  className={`p-1.5 rounded-[7px] transition ${
+                    viewMode === "list"
+                      ? "bg-brand text-white"
+                      : "text-theme-secondary hover:text-theme-primary"
+                  }`}
+                >
+                  <List className="w-4 h-4" />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => loadAnimals(true)}
+                disabled={refreshing}
+                title="Atualizar lista"
+                aria-label="Atualizar lista"
+                className="btn-secondary !px-3 !min-h-[44px] shrink-0"
+              >
+                <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+              </button>
             </div>
 
-            <div className="flex items-center gap-1.5 bg-theme-surface border border-theme rounded-xl p-1 shrink-0 overflow-x-auto">
-              <Filter className="w-3.5 h-3.5 text-theme-muted ml-2 mr-1 shrink-0" />
-              {(
-                [
-                  { id: "all", label: "Todos" },
-                  { id: "with_photos", label: "Com fotos" },
-                  { id: "without_photos", label: "Sem fotos" },
-                ] as const
-              ).map((tab) => (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+              {filterTabs.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => setFilterMode(tab.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition whitespace-nowrap inline-flex items-center gap-1.5 border ${
                     filterMode === tab.id
-                      ? "bg-emerald-600 text-white shadow-2xs"
-                      : "text-theme-secondary hover:bg-theme-surface-2"
+                      ? "bg-brand text-white border-transparent"
+                      : "bg-theme-surface text-theme-secondary border-theme hover:text-theme-primary"
                   }`}
                 >
-                  {tab.label}
+                  <span>{tab.label}</span>
+                  <span
+                    className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full ${
+                      filterMode === tab.id
+                        ? "bg-white/20 text-white"
+                        : "bg-theme-surface-2 text-theme-muted"
+                    }`}
+                  >
+                    {tab.count}
+                  </span>
                 </button>
               ))}
             </div>
-
-            {stats.totalPhotos > 0 && (
-              <button
-                type="button"
-                onClick={handleRecalibrateHerd}
-                disabled={recalibratingHerd}
-                className="btn-secondary py-1.5 px-3 text-xs flex items-center justify-center gap-1.5 shrink-0 border-emerald-500/30 hover:border-emerald-500/50"
-                title="Recalcular confiança de todas as fotos do seu rebanho usando a IA calibrada localmente"
-              >
-                {recalibratingHerd ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
-                ) : (
-                  <Activity className="w-3.5 h-3.5 text-emerald-500" />
-                )}
-                <span>
-                  {recalibratingHerd ? "Recalculando…" : "Recalcular Confiança"}
-                </span>
-              </button>
-            )}
           </div>
         )}
 
@@ -420,24 +578,24 @@ export default function DashboardPage() {
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} />
+              <CardSkeleton key={i} />
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="card py-16 px-6 flex flex-col items-center justify-center gap-3 text-center max-w-lg mx-auto my-6">
-            <div className="w-12 h-12 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-              <Layers className="w-6 h-6 text-emerald-600 dark:text-emerald-400 stroke-[1.5]" />
+          <div className="card py-14 px-6 flex flex-col items-center justify-center gap-3 text-center max-w-lg mx-auto my-6">
+            <div className="w-11 h-11 rounded-[12px] bg-brand-soft flex items-center justify-center">
+              <Layers className="w-5 h-5" />
             </div>
             <div>
               <h2 className="text-base font-bold text-theme-primary">
                 {query || filterMode !== "all"
-                  ? "Nenhum animal encontrado para este filtro"
-                  : "Comece cadastrando seu primeiro animal"}
+                  ? "Nenhum animal encontrado"
+                  : "Seu rebanho está vazio"}
               </h2>
               <p className="text-xs text-theme-secondary mt-1 max-w-sm mx-auto">
                 {query || filterMode !== "all"
-                  ? "Limpe a busca ou altere o filtro para visualizar todos os animais."
-                  : "Cadastre o brinco e os dados básicos do bovino para liberar a captura guiada de fotos."}
+                  ? "Limpe a busca ou troque o filtro para visualizar os animais."
+                  : "Cadastre o primeiro bovino com apelido ou brinco para iniciar o acompanhamento."}
               </p>
             </div>
             {query || filterMode !== "all" ? (
@@ -447,35 +605,39 @@ export default function DashboardPage() {
                   setQuery("");
                   setFilterMode("all");
                 }}
-                className="btn-secondary px-5 py-2.5 text-sm"
+                className="btn-secondary !py-2 !px-4 !min-h-[38px] text-xs"
               >
                 Limpar filtros
               </button>
             ) : (
-              <div className="flex flex-wrap justify-center gap-3 mt-1">
-                <Link href="/animal/new" className="btn-primary px-6 py-3">
+              <div className="flex flex-wrap justify-center gap-2.5 mt-1">
+                <Link href="/animal/new" className="btn-primary px-5 text-sm">
                   <Plus className="w-4 h-4" />
-                  Cadastrar Primeiro Animal
+                  <span>Cadastrar animal</span>
                 </Link>
                 {isAdmin && (
-                  <Link href="/admin" className="btn-secondary px-5 py-3">
-                    <ShieldCheck className="w-4 h-4 text-amber-500" />
-                    Ver Todos no Painel Admin
+                  <Link href="/admin" className="btn-secondary px-4 text-sm">
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Gestão</span>
                   </Link>
                 )}
               </div>
             )}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        ) : viewMode === "list" ? (
+          <div className="card divide-y divide-[var(--border-subtle)] overflow-hidden">
             {filtered.map((a) => (
-              <AnimalCard key={a.id} animal={a} />
+              <AnimalTableRow key={a.id} animal={a} currentUserId={currentUserId} />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filtered.map((a) => (
+              <AnimalCard key={a.id} animal={a} currentUserId={currentUserId} />
             ))}
           </div>
         )}
-      </main>
-
-      <MobileNav isAdmin={isAdmin} />
-    </div>
+      </div>
+    </AppShell>
   );
 }

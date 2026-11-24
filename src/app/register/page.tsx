@@ -1,15 +1,12 @@
 "use client";
 
-/**
- * Página de Cadastro de Operador (`src/app/register/page.tsx`).
- * Suporte completo a Tema Claro/Escuro (`ThemeToggle`).
- */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2, ArrowLeft, User, Mail, Lock, Eye, EyeOff, ScanLine, AlertTriangle, UserPlus } from "lucide-react";
-import { signIn } from "next-auth/react";
+import { Loader2, ArrowLeft, User, Mail, Lock, Eye, EyeOff, AlertTriangle, Check } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
+import { BrandMark } from "@/components/BrandMark";
+import { useAuth } from "@/lib/auth-context";
 
 export default function RegisterPage() {
   const [name, setName] = useState("");
@@ -19,206 +16,191 @@ export default function RegisterPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { register } = useAuth();
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
-
     try {
-      const res = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
-      });
-
-      if (res.ok) {
-        const signInRes = await signIn("credentials", {
-          redirect: false,
-          email,
-          password,
-        });
-
-        if (signInRes?.error) {
-          setError("Conta criada! Faça login para continuar.");
-          setLoading(false);
-          router.push("/login");
-        } else {
-          router.push("/dashboard");
-          router.refresh();
-        }
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error || "Não foi possível concluir o cadastro.");
-        setLoading(false);
-      }
-    } catch {
-      setError("Erro de conexão ao servidor. Verifique sua internet.");
+      await register(name, email, password);
+      router.push("/dashboard");
+    } catch (err: any) {
+      setError(err?.message || "Não foi possível concluir o cadastro.");
+    } finally {
       setLoading(false);
     }
   };
 
   return (
     <div className="min-h-[100dvh] flex bg-theme-bg text-theme-primary">
-      {/* Painel lateral */}
-      <div className="hidden lg:flex w-[420px] xl:w-[460px] flex-col justify-between p-10 bg-slate-900 text-white relative overflow-hidden border-r border-slate-800">
-        <div
+      <div
+        className="hidden lg:flex w-[420px] xl:w-[460px] flex-col justify-between p-10 text-white relative overflow-hidden"
+        style={{ backgroundColor: "#123829" }}
+      >
+        <svg
           aria-hidden="true"
-          className="pointer-events-none absolute -top-24 -left-24 w-80 h-80 rounded-full bg-emerald-500/20 blur-3xl"
-        />
+          viewBox="0 0 400 600"
+          className="absolute inset-0 w-full h-full opacity-[0.07] pointer-events-none"
+          preserveAspectRatio="none"
+        >
+          <path d="M-40 120 Q140 60 440 180" fill="none" stroke="#FFFFFF" strokeWidth="2" />
+          <path d="M-40 220 Q180 140 440 280" fill="none" stroke="#FFFFFF" strokeWidth="1.5" />
+          <path d="M-40 340 Q160 250 440 390" fill="none" stroke="#FFFFFF" strokeWidth="1.5" />
+          <path d="M-40 460 Q200 380 440 500" fill="none" stroke="#FFFFFF" strokeWidth="2" />
+        </svg>
 
         <div className="relative z-10">
           <Link href="/" className="inline-flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-md bg-emerald-500 flex items-center justify-center text-white shadow-xs">
-              <ScanLine className="w-5 h-5 stroke-[2.2]" />
-            </div>
+            <BrandMark className="w-9 h-9" />
             <span className="font-bold text-xl tracking-tight">
-              Cattle<span className="text-emerald-400">Capture</span>
+              Cattle<span className="text-emerald-300">Capture</span>
             </span>
           </Link>
 
-          <div className="mt-14">
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-md mb-4">
-              <UserPlus className="w-3.5 h-3.5" />
-              Colaborador de Campo
+          <div className="mt-16">
+            <span className="text-xs font-semibold text-emerald-300/90 block mb-3">
+              Novo cadastro
             </span>
-            <h1 className="text-3xl font-bold leading-tight tracking-tight">
-              Ajude a construir o dataset para a IA de ICS.
+            <h1 className="text-2xl xl:text-3xl font-bold leading-tight tracking-tight">
+              Comece a organizar e capturar o seu dataset hoje.
             </h1>
-            <p className="mt-4 text-sm text-slate-300 leading-relaxed">
-              Fotografe a região posterior de bovinos com mira anatômica padronizada e
-              alimente o banco de dados que treinará o modelo de predição do Índice de Condição Corporal.
+            <p className="mt-4 text-sm text-emerald-100/80 leading-relaxed">
+              Crie sua conta para cadastrar animais, capturar fotos guiadas em campo e manter o
+              acervo fotográfico de todo o lote.
             </p>
+          </div>
+        </div>
+
+        <div className="relative z-10 space-y-2.5 pt-6 border-t border-white/15 text-xs text-emerald-100/80">
+          <div className="flex items-center gap-2">
+            <Check className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+            <span>Cadastro por apelido, brinco e localização</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Check className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+            <span>IA embarcada para validação de enquadramento</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Check className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+            <span>Compartilhamento de fichas com a equipe</span>
           </div>
         </div>
       </div>
 
-      {/* Formulário */}
       <div className="flex-1 flex flex-col justify-center items-center p-5 sm:p-10">
-        <div className="w-full max-w-md">
-          <div className="flex items-center justify-between mb-6">
+        <div className="w-full max-w-md space-y-6">
+          <div className="flex items-center justify-between">
             <Link
               href="/"
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-theme-secondary hover:text-theme-primary"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-theme-secondary hover:text-theme-primary"
             >
               <ArrowLeft className="w-4 h-4" />
-              Início
+              <span>Início</span>
             </Link>
             <div className="flex items-center gap-2.5">
               <div className="lg:hidden flex items-center gap-2">
-                <div className="w-7 h-7 rounded-md bg-emerald-600 flex items-center justify-center text-white">
-                  <ScanLine className="w-4 h-4 stroke-[2.2]" />
-                </div>
-                <span className="font-bold text-sm text-theme-primary">
-                  Cattle<span className="text-emerald-600 dark:text-emerald-400">Capture</span>
-                </span>
+                <BrandMark className="w-7 h-7" />
+                <span className="font-bold text-sm text-theme-primary">CattleCapture</span>
               </div>
               <ThemeToggle />
             </div>
           </div>
 
-          <div className="card p-5 sm:p-7">
-            <h2 className="text-xl sm:text-2xl font-bold text-theme-primary tracking-tight mb-1">
-              Criar nova conta
+          <div>
+            <h2 className="text-2xl font-bold text-theme-primary tracking-tight">
+              Criar conta
             </h2>
-            <p className="text-xs sm:text-sm text-theme-secondary mb-5">
-              Preencha seus dados para começar a catalogar e colaborar com o dataset.
+            <p className="text-xs sm:text-sm text-theme-secondary mt-1">
+              Preencha seus dados para acessar o painel de manejo.
             </p>
-
-            {error && (
-              <div className="error-banner mb-4 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleRegister} className="flex flex-col gap-5">
-              <div>
-                <label className="field-label" htmlFor="reg-name">
-                  Nome completo
-                </label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    id="reg-name"
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="field-input pl-10"
-                    placeholder="João da Silva"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="field-label" htmlFor="reg-email">
-                  E-mail
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    id="reg-email"
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="field-input pl-10"
-                    placeholder="seu@email.com"
-                    inputMode="email"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="field-label" htmlFor="reg-password">
-                  Senha
-                </label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    id="reg-password"
-                    type={showPassword ? "text" : "password"}
-                    required
-                    minLength={6}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="field-input pl-10 pr-10"
-                    placeholder="Mínimo de 6 caracteres"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-theme-muted hover:text-theme-primary p-1"
-                    tabIndex={-1}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="btn-primary w-full py-3.5 text-base mt-1"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                {loading ? "Criando conta…" : "Concluir Cadastro"}
-              </button>
-            </form>
-
-            <div className="mt-6 pt-5 border-t border-theme text-center">
-              <p className="text-sm text-theme-secondary">
-                Já possui uma conta?{" "}
-                <Link
-                  href="/login"
-                  className="font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
-                >
-                  Fazer login
-                </Link>
-              </p>
-            </div>
           </div>
+
+          {error && (
+            <div className="error-banner flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleRegister} className="space-y-4">
+            <div>
+              <label className="field-label" htmlFor="reg-name">
+                Nome completo
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  id="reg-name"
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="field-input pl-10"
+                  placeholder="João da Silva"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="field-label" htmlFor="reg-email">
+                E-mail
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  id="reg-email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="field-input pl-10"
+                  placeholder="seu@email.com"
+                  inputMode="email"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="field-label" htmlFor="reg-password">
+                Senha
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  id="reg-password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="field-input pl-10 pr-10"
+                  placeholder="Mínimo de 6 caracteres"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-theme-muted hover:text-theme-primary p-1"
+                  tabIndex={-1}
+                  aria-label="Mostrar ou ocultar senha"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <button type="submit" disabled={loading} className="btn-primary w-full py-3 text-sm sm:text-base">
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              <span>{loading ? "Criando conta…" : "Criar conta"}</span>
+            </button>
+          </form>
+
+          <p className="text-sm text-theme-secondary pt-4 border-t border-theme text-center">
+            Já possui conta?{" "}
+            <Link href="/login" className="font-semibold text-brand hover:underline">
+              Entrar agora
+            </Link>
+          </p>
         </div>
       </div>
     </div>

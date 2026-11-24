@@ -1,35 +1,27 @@
 /**
  * API Unificada de Fotos, Upload e Análise IA (`src/app/api/photos/[[...slug]]/route.ts`).
  *
- * Consolidação Arquitetural:
- * - Unifica `/api/photos/[id]`, `/api/photos/[id]/recalibrate`, `/api/upload` e `/api/ai/score`
- *   em 1 única Serverless Function, reduzindo agressivamente a contagem total de funções
- *   do projeto para garantir conformidade permanente com o plano Hobby da Vercel.
+ * Suporta:
+ * - `GET /api/photos/[id]` (`?w=480`, WebP negotiation, ETag `304`, guarda compartilhada).
+ * - `POST /api/photos/score` (`?mode=live`).
+ * - `POST /api/photos/upload` (preserva `preScore` quando `aiSource=yolo-onnx-client`, ou executa `analyzeRearImage`).
+ * - `POST /api/photos/[id]/recalibrate`.
+ * - `DELETE /api/photos/[id]`.
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { canAccessAnimal } from "@/lib/custody";
 import { readPhotoBuffer, deleteStoredFile, storePhotoBuffer } from "@/lib/storage";
-import { analyzeRearImage, detectRearScore } from "@/lib/ai";
+import { analyzeRearImage } from "@/lib/ai";
 
 export const maxDuration = 45;
 export const dynamic = "force-dynamic";
 
 type Context = { params: Promise<{ slug?: string[] }> };
 
-async function inferScoreWithTimeout(buffer: Buffer, timeoutMs = 5000): Promise<number | null> {
-  try {
-    return await Promise.race([
-      detectRearScore(buffer),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
-    ]);
-  } catch {
-    return null;
-  }
-}
-
 /* ── GET /api/photos/[id] ── */
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: Request, context: Context) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
@@ -37,7 +29,6 @@ export async function GET(_request: Request, context: Context) {
 
   const { slug = [] } = await context.params;
   const photoId = slug[0];
-
   if (!photoId) {
     return NextResponse.json({ error: "ID da foto não fornecido" }, { status: 400 });
   }
@@ -49,10 +40,39 @@ export async function GET(_request: Request, context: Context) {
     })
     .catch(() => null);
 
-  const isOwner = photo?.animal?.ownerId === Number(session.user.id);
-  const isAdmin = session.user.role === "ADMIN";
-  if (!photo || (!isOwner && !isAdmin)) {
+  if (!photo) {
     return NextResponse.json({ error: "Foto não encontrada" }, { status: 404 });
+  }
+
+  const hasAccess = await canAccessAnimal(
+    photo.animalId,
+    photo.animal?.ownerId ?? 0,
+    Number(session.user.id),
+    session.user.role === "ADMIN"
+  );
+  if (!hasAccess) {
+    return NextResponse.json({ error: "Acesso negado a esta foto" }, { status: 403 });
+  }
+
+  const url = new URL(request.url);
+  const parsedWidth = Number(url.searchParams.get("w") || "0");
+  const targetWidth =
+    Number.isFinite(parsedWidth) && parsedWidth >= 120 && parsedWidth <= 1600
+      ? Math.round(parsedWidth)
+      : 0;
+  const acceptHeader = (request.headers.get("accept") || "").toLowerCase();
+  const wantsWebp = targetWidth > 0 && acceptHeader.includes("image/webp");
+  const etag = `"${photo.id}-${targetWidth || "full"}-${wantsWebp ? "webp" : "orig"}"`;
+
+  if (request.headers.get("if-none-match") === etag) {
+    return new NextResponse(null, {
+      status: 304,
+      headers: {
+        ETag: etag,
+        "Cache-Control": "private, max-age=31536000, immutable",
+        Vary: "Accept",
+      },
+    });
   }
 
   try {
@@ -64,12 +84,36 @@ export async function GET(_request: Request, context: Context) {
       );
     }
 
-    return new NextResponse(new Uint8Array(resolved.buffer), {
+    let outputBuffer = resolved.buffer;
+    let outputContentType = resolved.contentType;
+
+    if (targetWidth > 0 && targetWidth < 1600) {
+      try {
+        const { default: sharp } = await import("sharp");
+        const pipeline = sharp(resolved.buffer)
+          .rotate()
+          .resize(targetWidth, null, { withoutEnlargement: true });
+
+        if (wantsWebp) {
+          outputBuffer = await pipeline.webp({ quality: 78 }).toBuffer();
+          outputContentType = "image/webp";
+        } else {
+          outputBuffer = await pipeline.jpeg({ quality: 78, mozjpeg: true }).toBuffer();
+          outputContentType = "image/jpeg";
+        }
+      } catch {
+        // Fallback silencioso para buffer original
+      }
+    }
+
+    return new NextResponse(new Uint8Array(outputBuffer), {
       status: 200,
       headers: {
-        "Content-Type": resolved.contentType,
-        "Content-Length": String(resolved.buffer.byteLength),
-        "Cache-Control": "private, max-age=86400, stale-while-revalidate=604800",
+        "Content-Type": outputContentType,
+        "Content-Length": String(outputBuffer.byteLength),
+        "Cache-Control": "private, max-age=31536000, immutable",
+        ETag: etag,
+        Vary: "Accept",
       },
     });
   } catch (err) {
@@ -89,7 +133,7 @@ export async function POST(request: Request, context: Context) {
   const firstParam = slug[0];
   const secondParam = slug[1];
 
-  // 1. POST /api/photos/score (Análise de Score IA em tempo real / pré-upload)
+  // 1. POST /api/photos/score
   if (firstParam === "score") {
     try {
       const formData = await request.formData();
@@ -104,29 +148,35 @@ export async function POST(request: Request, context: Context) {
         return NextResponse.json({ error: "Frame inválido" }, { status: 400 });
       }
 
-      const result = await analyzeRearImage(buffer);
+      const url = new URL(request.url);
+      const fastLive = url.searchParams.get("mode") === "live";
+      const result = await analyzeRearImage(buffer, { fastLive });
       return NextResponse.json(result, { status: 200 });
     } catch (err) {
       console.error("[/api/photos/score] Erro ao calcular score:", err);
       return NextResponse.json(
         {
-          score: 70,
-          lowQuality: false,
+          score: 0,
+          confidence: 0,
+          lowQuality: true,
+          error: true,
           source: "vision-analysis",
-          feedback: "Imagem pronta para envio.",
+          feedback: "Falha ao processar frame na IA — tente novamente.",
         },
         { status: 200 }
       );
     }
   }
 
-  // 2. POST /api/photos/upload (Upload e persistência de nova foto com IA)
+  // 2. POST /api/photos/upload
   if (firstParam === "upload") {
     try {
       const formData = await request.formData();
       const file = formData.get("file");
       const animalId = String(formData.get("animalId") ?? "").trim();
       const view = String(formData.get("view") ?? "REAR").trim().toUpperCase() || "REAR";
+      const aiSource = String(formData.get("aiSource") ?? "").trim();
+      const preScoreRaw = formData.get("preScore");
 
       if (!file || typeof (file as Blob).arrayBuffer !== "function" || !animalId) {
         return NextResponse.json(
@@ -148,9 +198,13 @@ export async function POST(request: Request, context: Context) {
         return NextResponse.json({ error: "Animal não encontrado." }, { status: 404 });
       }
 
-      const isOwner = animal.ownerId === Number(session.user.id);
-      const isAdmin = session.user.role === "ADMIN";
-      if (!isOwner && !isAdmin) {
+      const hasAccess = await canAccessAnimal(
+        animal.id,
+        animal.ownerId,
+        Number(session.user.id),
+        session.user.role === "ADMIN"
+      );
+      if (!hasAccess) {
         return NextResponse.json(
           { error: "Você não tem permissão para adicionar fotos a este animal." },
           { status: 403 }
@@ -158,17 +212,23 @@ export async function POST(request: Request, context: Context) {
       }
 
       const rawBuffer = Buffer.from(await blobFile.arrayBuffer());
-
-      // Armazena a imagem otimizada (Vercel Blob ou fallback PostgreSQL)
       const { filePath, optimizedBuffer, storageType } = await storePhotoBuffer(
         animal.tag,
         rawBuffer
       );
 
-      // Executa a inferência canônica da IA sobre o buffer real persistido
-      // Isso garante 100% de paridade e determinismo entre upload, recálculo individual e em lote
-      const analysis = await analyzeRearImage(optimizedBuffer);
-      const aiScore = analysis.score;
+      // Edge AI: quando o dispositivo já calculou o enquadramento com os modelos ONNX locais,
+      // preservamos o score validado no cliente sem duplicar inferência no servidor.
+      const parsedClientScore =
+        aiSource === "yolo-onnx-client" && preScoreRaw !== null
+          ? Number(preScoreRaw)
+          : NaN;
+      const hasValidatedClientScore =
+        Number.isFinite(parsedClientScore) && parsedClientScore >= 0 && parsedClientScore <= 100;
+
+      const aiScore = hasValidatedClientScore
+        ? Math.round(parsedClientScore * 10) / 10
+        : (await analyzeRearImage(optimizedBuffer)).score;
 
       const photo = await prisma.photo.create({
         data: {
@@ -200,6 +260,7 @@ export async function POST(request: Request, context: Context) {
           success: true,
           photo,
           score: aiScore,
+          confidence: aiScore,
           lowQuality,
           storageType,
         },
@@ -212,7 +273,7 @@ export async function POST(request: Request, context: Context) {
     }
   }
 
-  // 3. POST /api/photos/[id]/recalibrate (Recalibra foto individual)
+  // 3. POST /api/photos/[id]/recalibrate
   if (firstParam && secondParam === "recalibrate") {
     const photoId = firstParam;
     try {
@@ -233,10 +294,13 @@ export async function POST(request: Request, context: Context) {
         return NextResponse.json({ error: "Foto não encontrada" }, { status: 404 });
       }
 
-      const isOwner = photo.animal?.ownerId === Number(session.user.id);
-      const isAdmin = session.user.role === "ADMIN";
-
-      if (!isOwner && !isAdmin) {
+      const hasAccess = await canAccessAnimal(
+        photo.animal?.id || photo.animalId,
+        photo.animal?.ownerId ?? 0,
+        Number(session.user.id),
+        session.user.role === "ADMIN"
+      );
+      if (!hasAccess) {
         return NextResponse.json(
           { error: "Você não tem permissão para recalcular esta foto" },
           { status: 403 }
@@ -258,6 +322,7 @@ export async function POST(request: Request, context: Context) {
         data: { score: analysis.score },
         select: {
           id: true,
+          animalId: true,
           score: true,
           view: true,
           createdAt: true,
@@ -275,7 +340,7 @@ export async function POST(request: Request, context: Context) {
 
       return NextResponse.json({
         success: true,
-        message: `Confiança recalculada com sucesso: ${Math.round(analysis.score)}%!`,
+        message: `Confiança de enquadramento atualizada: ${Math.round(analysis.score)}%!`,
         newScore: analysis.score,
         score: analysis.score,
         photo: updated,

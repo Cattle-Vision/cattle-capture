@@ -10,6 +10,7 @@ export const config = {
     "/camera/:path*",
     "/admin/:path*",
     "/identify/:path*",
+    "/profile/:path*",
     "/login",
     "/register",
   ],

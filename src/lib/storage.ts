@@ -38,19 +38,35 @@ export function safeJpegName(tag: string): string {
 }
 
 /**
- * Otimiza e padroniza o buffer de imagem para JPEG leve (máx 1600px, ~150KB).
- * Caso o binário do `sharp` não esteja disponível, retorna o buffer original sem interromper o fluxo.
+ * Preserva o máximo de fidelidade e resolução para o dataset e inferência IA:
+ * - Se já for JPEG com orientação normal (1), até 2560px e <= 3,5 MB, mantém o buffer original sem recompressão.
+ * - Caso contrário, aplica rotação EXIF e limita ao teto seguro de 2560px com JPEG qualidade 92.
  */
 export async function optimizeImageBuffer(inputBuffer: Buffer): Promise<Buffer> {
   try {
+    const pipeline = sharp(inputBuffer);
+    const meta = await pipeline.metadata();
+    const maxDim = Math.max(meta.width ?? 0, meta.height ?? 0);
+    const needsRotation = Boolean(meta.orientation && meta.orientation !== 1);
+
+    if (
+      meta.format === "jpeg" &&
+      !needsRotation &&
+      maxDim > 0 &&
+      maxDim <= 2560 &&
+      inputBuffer.byteLength <= 3.5 * 1024 * 1024
+    ) {
+      return inputBuffer;
+    }
+
     return await sharp(inputBuffer)
-      .rotate() // Aplica rotação automática baseada nos metadados EXIF da câmera do celular
-      .resize(1600, 1600, {
+      .rotate()
+      .resize(2560, 2560, {
         fit: "inside",
         withoutEnlargement: true,
       })
       .jpeg({
-        quality: 82,
+        quality: 92,
         mozjpeg: true,
       })
       .toBuffer();

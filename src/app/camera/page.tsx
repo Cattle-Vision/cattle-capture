@@ -3,17 +3,11 @@
 /**
  * Câmera Guiada com IA em Tempo Real e Diagnóstico Pré-Upload (`src/app/camera/page.tsx`).
  *
- * Arquitetura e Melhorias Solicitadas:
- * 1. **Zero Checkboxes Desnecessários**:
- *    Removido o checklist manual de 3 itens que bloqueava o salvamento.
- * 2. **Score de IA em Tempo Real no Viewfinder**:
- *    Enquanto a câmera aponta para o animal, analisa continuamente o quadro (combinando
- *    análise óptica instantânea no cliente + inferência YOLOv8 ONNX periódica em `/api/ai/score`),
- *    exibindo o Score ao vivo e mudando a cor da mira conforme a qualidade do enquadramento.
- * 3. **Score de IA Calculado ANTES do Upload (na tela de Preview)**:
- *    Assim que o usuário tira a foto ou seleciona uma imagem da galeria, o sistema calcula
- *    e exibe imediatamente o Score de Confiança IA e o diagnóstico na tela de Preview,
- *    **antes** de o usuário clicar em "Salvar no Dataset".
+ * Recursos:
+ * - Viewfinder com silhueta anatômica bovina (garupa, ísquios e coluna).
+ * - Sem botões redundantes (mantém galeria e troca de câmera/lentes).
+ * - Suporta imagens de qualquer resolução (>512x512) e proporções diversas sem distorção.
+ * - Score de IA ao vivo e diagnóstico pré-upload antes do salvamento definitivo.
  */
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -27,22 +21,26 @@ import {
   ImagePlus,
   AlertCircle,
   AlertTriangle,
-  Sparkles,
-  Upload,
   WifiOff,
   Loader2,
   Activity,
   SwitchCamera,
+  Compass,
 } from "lucide-react";
 import { useToast } from "@/components/ui/Toast";
 import { compressImageFile, formatBytes } from "@/lib/image-client";
 import {
-  computeInstantVideoScore,
   evaluatePhotoScoreBeforeUpload,
-  getReticleCropCoordinates,
+  getFramingCaptureRect,
   VisionScoreResult,
 } from "@/lib/vision-client";
+import {
+  cacheLocalModelsForOffline,
+  LocalAiModelStatus,
+  warmUpLocalVisionModels,
+} from "@/lib/local-onnx";
 import { enqueueSync } from "@/lib/sync";
+import { apiFetch, apiUpload } from "@/lib/api";
 
 type Screen = "viewfinder" | "preview" | "uploading" | "done" | "error";
 
@@ -58,11 +56,14 @@ async function captureVideoFrame(
     const vh = video.videoHeight;
     if (!vw || !vh) return null;
 
-    // Obtém o recorte estrito projetado da mira sobre o frame real do sensor
-    const { sx, sy, sw, sh } = getReticleCropCoordinates(video, reticleEl);
+    // Captura alinhada ao quadro visível na tela + margem segura ao redor da mira,
+    // evitando bordas ocultas em 16:9 vertical que diminuem a garupa para a IA.
+    const rect = reticleEl ? getFramingCaptureRect(video, reticleEl) : { sx: 0, sy: 0, sw: vw, sh: vh };
+    const sw = Math.max(64, rect.sw || vw);
+    const sh = Math.max(64, rect.sh || vh);
 
-    let dw = Math.round(sw);
-    let dh = Math.round(sh);
+    let dw = sw;
+    let dh = sh;
 
     if (dw > maxDim || dh > maxDim) {
       if (dw > dh) {
@@ -79,8 +80,7 @@ async function captureVideoFrame(
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return null;
 
-    // Desenha EXCLUSIVAMENTE os pixels delimitados pela mira de enquadramento
-    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, dw, dh);
+    ctx.drawImage(video, rect.sx, rect.sy, sw, sh, 0, 0, dw, dh);
 
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob((b) => resolve(b), "image/jpeg", quality)
@@ -100,7 +100,8 @@ function CameraContent() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const scratchCanvasRef = useRef<HTMLCanvasElement>(null);
+  const opticalCanvasRef = useRef<HTMLCanvasElement>(null);
+  const liveAiCanvasRef = useRef<HTMLCanvasElement>(null);
   const reticleRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
@@ -114,24 +115,41 @@ function CameraContent() {
   const [camErr, setCamErr] = useState("");
   const [vidReady, setVidReady] = useState(false);
 
-  // Estado do Score em Tempo Real (Viewfinder)
   const [liveScore, setLiveScore] = useState<number | null>(null);
-  const [liveStatus, setLiveStatus] = useState("Analisando quadro…");
+  const [liveStatus, setLiveStatus] = useState("Centralize a garupa na guia");
+  const [liveAiEnabled, setLiveAiEnabled] = useState(true);
+  const [distanceGuide, setDistanceGuide] = useState<{
+    status: "ideal" | "too-far" | "too-close" | "unknown";
+    label: string;
+  }>({ status: "unknown", label: "" });
 
-  // Estado do Score Pré-Upload (calculado logo após tirar/escolher a foto, antes de salvar!)
+  const lastTiltUpdateRef = useRef<number>(0);
+  const lastTiltSignatureRef = useRef<string>("");
+
+  const [tiltStatus, setTiltStatus] = useState<{
+    available: boolean;
+    needsPermission: boolean;
+    ok: boolean;
+    label: string;
+  }>({
+    available: false,
+    needsPermission: false,
+    ok: true,
+    label: "",
+  });
+
   const [scoringPreview, setScoringPreview] = useState(false);
   const [previewAnalysis, setPreviewAnalysis] = useState<VisionScoreResult | null>(null);
+  const [localAiStatus, setLocalAiStatus] = useState<LocalAiModelStatus>("loading");
+  const [isOffline, setIsOffline] = useState(false);
 
-  // Estado pós-upload
   const [savedOffline, setSavedOffline] = useState(false);
   const [uploadErr, setUploadErr] = useState("");
 
-  // Estados de Gerenciamento de Câmera / Lentes / Dispositivos
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [switchingCamera, setSwitchingCamera] = useState(false);
-  const [activeDeviceLabel, setActiveDeviceLabel] = useState("");
   const { toast } = useToast();
 
   const refreshVideoDevices = async () => {
@@ -148,7 +166,7 @@ function CameraContent() {
 
   const startCamera = async (targetDeviceId?: string, targetFacing?: "environment" | "user") => {
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCamErr("Câmera ao vivo indisponível neste navegador. Use a Câmera do Aparelho ou Galeria abaixo.");
+      setCamErr("Câmera ao vivo indisponível neste navegador. Use a Galeria abaixo.");
       return;
     }
 
@@ -163,6 +181,8 @@ function CameraContent() {
 
     const desiredFacing = targetFacing ?? facingMode;
     const desiredDeviceId = targetDeviceId ?? selectedDeviceId;
+    const isPortraitViewport =
+      typeof window !== "undefined" && window.innerHeight > window.innerWidth;
 
     const attempts: MediaStreamConstraints[] = [];
 
@@ -170,13 +190,14 @@ function CameraContent() {
       attempts.push({
         video: {
           deviceId: { exact: desiredDeviceId },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: isPortraitViewport ? 960 : 1280 },
+          height: { ideal: isPortraitViewport ? 1280 : 960 },
+          frameRate: { ideal: 30, min: 15 },
         },
         audio: false,
       });
       attempts.push({
-        video: { deviceId: { exact: desiredDeviceId } },
+        video: { deviceId: { exact: desiredDeviceId }, frameRate: { ideal: 30 } },
         audio: false,
       });
     }
@@ -185,8 +206,16 @@ function CameraContent() {
       {
         video: {
           facingMode: { ideal: desiredFacing },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: isPortraitViewport ? 960 : 1280 },
+          height: { ideal: isPortraitViewport ? 1280 : 960 },
+          frameRate: { ideal: 30, min: 15 },
+        },
+        audio: false,
+      },
+      {
+        video: {
+          facingMode: { ideal: desiredFacing },
+          frameRate: { ideal: 30 },
         },
         audio: false,
       },
@@ -200,7 +229,7 @@ function CameraContent() {
         successStream = await navigator.mediaDevices.getUserMedia(c);
         break;
       } catch {
-        // tenta próxima constraint
+        // Tenta próxima restrição
       }
     }
 
@@ -220,9 +249,6 @@ function CameraContent() {
       const settings = track?.getSettings?.();
       if (settings?.deviceId) {
         setSelectedDeviceId(settings.deviceId);
-      }
-      if (track?.label) {
-        setActiveDeviceLabel(track.label);
       }
 
       await refreshVideoDevices();
@@ -254,15 +280,13 @@ function CameraContent() {
 
   useEffect(() => {
     if (!animalId || animalName) return;
-    fetch(`/api/animals/${animalId}`)
-      .then((r) => (r.ok ? r.json() : null))
+    apiFetch<any>(`/api/animals/${animalId}`)
       .then((d) => {
         if (d?.name || d?.tag) setAnimalName(d.name || d.tag);
       })
       .catch(() => {});
   }, [animalId, animalName]);
 
-  /* ── Inicializa câmera ao vivo ── */
   useEffect(() => {
     if (!animalId) {
       setCamErr("Animal não especificado. Volte ao painel e selecione um animal.");
@@ -277,61 +301,217 @@ function CameraContent() {
     };
   }, [animalId]);
 
-  /* ── Loop de IA e Orientação Óptica Estável no Viewfinder ── */
+  const liveAbortRef = useRef<AbortController | null>(null);
+  const liveAiFreshUntilRef = useRef<number>(0);
+
+  useEffect(() => {
+    const syncNet = () => setIsOffline(typeof navigator !== "undefined" ? !navigator.onLine : false);
+    syncNet();
+    window.addEventListener("online", syncNet);
+    window.addEventListener("offline", syncNet);
+
+    let cancelled = false;
+    setLocalAiStatus("loading");
+    void cacheLocalModelsForOffline();
+    warmUpLocalVisionModels()
+      .then((ok) => {
+        if (!cancelled) setLocalAiStatus(ok ? "ready" : "unavailable");
+      })
+      .catch(() => {
+        if (!cancelled) setLocalAiStatus("unavailable");
+      });
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", syncNet);
+      window.removeEventListener("offline", syncNet);
+    };
+  }, []);
+
   useEffect(() => {
     if (screen !== "viewfinder" || !vidReady || !!camErr) return;
 
+    if (!liveAiEnabled) {
+      liveAbortRef.current?.abort();
+      liveAbortRef.current = null;
+      setLiveStatus("Prévia fluida · Análise ao vivo pausada");
+      return;
+    }
+
     let active = true;
-    let inFlightServerCheck = false;
-    let tickCount = 0;
+    let aiTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // Monitoramento contínuo: cálculo óptico suave a 400ms e calibração periódica estável
-    const interval = setInterval(async () => {
+    // Edge AI local (ONNX WASM no próprio dispositivo): funciona com ou sem internet
+    // em cadência espaçada (5s) e yields explícitos para manter o viewfinder em 30fps.
+    const scheduleNextAiTick = (delayMs: number) => {
       if (!active) return;
-      const video = videoRef.current;
-      const scratch = scratchCanvasRef.current;
-      if (!video || !scratch || !video.videoWidth) return;
+      aiTimer = setTimeout(() => {
+        void runLiveAiTick();
+      }, delayMs);
+    };
 
-      // 1. Orientação óptica contínua e instantânea no recorte da mira
-      const instant = computeInstantVideoScore(video, scratch, reticleRef.current);
-      if (instant && active) {
-        setLiveStatus(instant.statusText);
-        // Suavização exponencial (EMA) para estabilizar os números sem oscilação brusca
-        setLiveScore((prev) =>
-          prev === null ? instant.score : Math.round(prev * 0.75 + instant.score * 0.25)
-        );
+    const runLiveAiTick = async () => {
+      if (!active || !liveAiEnabled) return;
+      if (document.visibilityState !== "visible") {
+        scheduleNextAiTick(5000);
+        return;
+      }
+      if (liveAbortRef.current) {
+        scheduleNextAiTick(5000);
+        return;
       }
 
-      // 2. Inferência de Confiança IA periódica (em canvas isolado para não conflitar com a ótica)
-      tickCount++;
-      if (tickCount % 4 === 0 && !inFlightServerCheck && navigator.onLine) {
-        inFlightServerCheck = true;
-        try {
-          // Usa canvas offscreen isolado para manter a integridade do scratchCanvas
-          const offCanvas = document.createElement("canvas");
-          const miniFrame = await captureVideoFrame(video, offCanvas, reticleRef.current, 512, 0.85);
-          if (miniFrame && active) {
-            const aiRes = await evaluatePhotoScoreBeforeUpload(miniFrame.blob);
-            if (active && typeof aiRes.score === "number") {
-              // Fusão ponderada suave da detecção neural sobre a média móvel
-              setLiveScore((prev) =>
-                prev === null ? Math.round(aiRes.score) : Math.round(prev * 0.7 + aiRes.score * 0.3)
-              );
+      const video = videoRef.current;
+      const aiCanvas = liveAiCanvasRef.current;
+      if (!video || !aiCanvas || !video.videoWidth) {
+        scheduleNextAiTick(2500);
+        return;
+      }
+
+      const frame = await captureVideoFrame(video, aiCanvas, reticleRef.current, 512, 0.72);
+      if (!frame || !active) {
+        scheduleNextAiTick(5000);
+        return;
+      }
+
+      const controller = new AbortController();
+      liveAbortRef.current = controller;
+
+      try {
+        const res = await evaluatePhotoScoreBeforeUpload(frame.blob, controller.signal, "live");
+        if (!active || controller.signal.aborted) return;
+
+        if (res.source === "yolo-onnx") {
+          if (res.localRuntime) setLocalAiStatus("ready");
+          liveAiFreshUntilRef.current = Date.now() + 7000;
+          setLiveScore(Math.round(res.score));
+          if (res.rejectedReason) {
+            setLiveStatus(res.feedback);
+            setDistanceGuide({ status: "unknown", label: "" });
+          } else {
+            setLiveStatus(
+              res.score >= 70
+                ? "Enquadramento ideal"
+                : res.score >= 40
+                ? "Posição boa · Pode fotografar"
+                : "Aproxime e centralize o animal"
+            );
+            if (res.box && res.box.w > 0 && res.box.h > 0) {
+              const { w, h } = res.box;
+              if (w < 0.35 && h < 0.35) {
+                setDistanceGuide({ status: "too-far", label: "Aproxime-se do animal" });
+              } else if (w > 0.9 || h > 0.9) {
+                setDistanceGuide({ status: "too-close", label: "Afaste-se um pouco" });
+              } else {
+                setDistanceGuide({ status: "ideal", label: "Distância ideal" });
+              }
+            } else {
+              setDistanceGuide({ status: "unknown", label: "" });
             }
           }
-        } catch {
-          // ignora falhas transitórias de conexão no background do visor
-        } finally {
-          inFlightServerCheck = false;
         }
+      } catch {
+        // Ignora abort/rede transitória sem interromper o viewfinder
+      } finally {
+        if (liveAbortRef.current === controller) {
+          liveAbortRef.current = null;
+        }
+        scheduleNextAiTick(5000);
       }
-    }, 400);
+    };
+
+    scheduleNextAiTick(2000);
 
     return () => {
       active = false;
-      clearInterval(interval);
+      if (aiTimer) clearTimeout(aiTimer);
+      liveAbortRef.current?.abort();
+      liveAbortRef.current = null;
     };
-  }, [screen, vidReady, camErr]);
+  }, [screen, vidReady, camErr, liveAiEnabled]);
+
+  const orientationListenerRef = useRef<((ev: DeviceOrientationEvent) => void) | null>(null);
+
+  const handleOrientationEvent = (ev: DeviceOrientationEvent) => {
+    if (ev.beta === null || ev.gamma === null) return;
+    const now = Date.now();
+    if (now - lastTiltUpdateRef.current < 450) return;
+
+    const absGamma = Math.abs(ev.gamma);
+    const verticalOk = ev.beta >= 50 && ev.beta <= 120;
+    const horizonOk = absGamma <= 12;
+
+    const nextOk = horizonOk && verticalOk;
+    const nextLabel = !horizonOk
+      ? "Nivele o aparelho horizontalmente"
+      : !verticalOk
+      ? "Mantenha a câmera na vertical"
+      : "Ângulo nivelado";
+
+    const nextSig = `${nextOk}:${nextLabel}`;
+    if (lastTiltSignatureRef.current === nextSig) return;
+    lastTiltUpdateRef.current = now;
+    lastTiltSignatureRef.current = nextSig;
+
+    setTiltStatus({
+      available: true,
+      needsPermission: false,
+      ok: nextOk,
+      label: nextLabel,
+    });
+  };
+
+  useEffect(() => {
+    if (screen !== "viewfinder" || typeof window === "undefined") return;
+    if (!("DeviceOrientationEvent" in window)) return;
+
+    const OrientationEventCtor = window.DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+      requestPermission?: () => Promise<"granted" | "denied">;
+    };
+
+    if (typeof OrientationEventCtor?.requestPermission === "function") {
+      setTiltStatus((prev) => ({ ...prev, needsPermission: true }));
+      return () => {
+        if (orientationListenerRef.current) {
+          window.removeEventListener("deviceorientation", orientationListenerRef.current);
+          orientationListenerRef.current = null;
+        }
+      };
+    }
+
+    orientationListenerRef.current = handleOrientationEvent;
+    window.addEventListener("deviceorientation", handleOrientationEvent);
+    return () => {
+      if (orientationListenerRef.current) {
+        window.removeEventListener("deviceorientation", orientationListenerRef.current);
+        orientationListenerRef.current = null;
+      }
+    };
+  }, [screen]);
+
+  const requestOrientationPermission = async () => {
+    const OrientationEventCtor = (
+      window as unknown as {
+        DeviceOrientationEvent?: { requestPermission?: () => Promise<"granted" | "denied"> };
+      }
+    ).DeviceOrientationEvent;
+    if (!OrientationEventCtor?.requestPermission) return;
+    try {
+      const res = await OrientationEventCtor.requestPermission();
+      if (res === "granted") {
+        setTiltStatus({ available: true, needsPermission: false, ok: true, label: "Nível ativo" });
+        if (orientationListenerRef.current) {
+          window.removeEventListener("deviceorientation", orientationListenerRef.current);
+        }
+        orientationListenerRef.current = handleOrientationEvent;
+        window.addEventListener("deviceorientation", handleOrientationEvent);
+      } else {
+        setTiltStatus((p) => ({ ...p, needsPermission: false }));
+      }
+    } catch {
+      setTiltStatus((p) => ({ ...p, needsPermission: false }));
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -341,7 +521,6 @@ function CameraContent() {
     };
   }, []);
 
-  /* ── Avalia o Score IA IMEDIATAMENTE após capturar/escolher a foto (ANTES do upload!) ── */
   const runPreUploadScoring = async (blob: Blob) => {
     setScoringPreview(true);
     setPreviewAnalysis(null);
@@ -353,8 +532,10 @@ function CameraContent() {
     }
   };
 
-  /* ── Captura do frame de vídeo ao vivo ── */
   const handleCapture = async () => {
+    liveAbortRef.current?.abort();
+    liveAbortRef.current = null;
+
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || !vidReady) {
@@ -362,9 +543,9 @@ function CameraContent() {
       return;
     }
 
-    const result = await captureVideoFrame(video, canvas, reticleRef.current, 1600, 0.88);
+    const result = await captureVideoFrame(video, canvas, reticleRef.current, 2048, 0.94);
     if (!result) {
-      setCamErr("Não foi possível capturar o quadro. Use a Câmera Nativa.");
+      setCamErr("Não foi possível capturar o quadro. Envie da galeria.");
       return;
     }
 
@@ -381,17 +562,14 @@ function CameraContent() {
     setImageMeta(`${result.width}×${result.height} · ${formatBytes(result.blob.size)}`);
     setScreen("preview");
 
-    // Calcula o Score IA ANTES de o usuário fazer o upload
     void runPreUploadScoring(result.blob);
   };
 
-  /* ── Captura via Câmera Nativa ou Galeria (com compressão + Score IA pré-upload!) ── */
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Suporta fotos em alta resolução (>512x512) e proporções livres (1:1, 16:9, etc.) sem recorte forçado
-    const compressed = await compressImageFile(file, 1600, 0.86);
+    const compressed = await compressImageFile(file, 2048, 0.94);
 
     if (previewRef.current.startsWith("blob:")) {
       URL.revokeObjectURL(previewRef.current);
@@ -411,11 +589,9 @@ function CameraContent() {
 
     if (galleryRef.current) galleryRef.current.value = "";
 
-    // Calcula o Score IA imediatamente na tela de Preview, ANTES do upload
     void runPreUploadScoring(compressed.blob);
   };
 
-  /* ── Salvar no Dataset (envia o score já calculado junto com a imagem) ── */
   const handleSave = async () => {
     const blob = blobRef.current;
     if (!blob || !animalId) return;
@@ -431,46 +607,47 @@ function CameraContent() {
     fd.append("view", "REAR");
     if (previewAnalysis && typeof previewAnalysis.score === "number") {
       fd.append("preScore", String(previewAnalysis.score));
+      fd.append("aiSource", previewAnalysis.localRuntime ? "yolo-onnx-client" : previewAnalysis.source);
     }
 
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
-      const data = await res.json().catch(() => ({}));
+      const data = await apiUpload<any>("/api/photos/upload", fd);
 
-      if (res.ok) {
-        if (typeof data.score === "number") {
-          setPreviewAnalysis((prev) => ({
-            score: data.score,
-            lowQuality: Boolean(data.lowQuality),
-            source: "yolo-onnx",
-            feedback: prev?.feedback || "Foto gravada no dataset oficial para IA de ICS.",
-            box: prev?.box,
-          }));
-        }
-        setScreen("done");
-        return;
+      if (typeof data?.score === "number") {
+        setPreviewAnalysis((prev) => ({
+          score: data.score,
+          lowQuality: Boolean(data.lowQuality),
+          source: "yolo-onnx",
+          localRuntime: prev?.localRuntime,
+          feedback: prev?.feedback || "Foto anatômica validada e registrada no dataset.",
+          box: prev?.box,
+        }));
       }
-
-      setUploadErr(data.error || `Falha no envio (HTTP ${res.status}). Tente novamente.`);
-      setScreen("error");
-    } catch {
+      setScreen("done");
+    } catch (err: any) {
       if (typeof navigator !== "undefined" && !navigator.onLine) {
         try {
           const arrayBuf = await blob.arrayBuffer();
           await enqueueSync(
-            "/api/upload",
+            "/api/photos/upload",
             "POST",
-            { file: arrayBuf, fileName, animalId },
+            {
+              file: arrayBuf,
+              fileName,
+              animalId,
+              preScore: previewAnalysis?.score,
+              aiSource: previewAnalysis?.localRuntime ? "yolo-onnx-client" : undefined,
+            },
             true
           );
           setSavedOffline(true);
           setScreen("done");
           return;
         } catch {
-          // Segue para erro padrão
+          // Segue para erro
         }
       }
-      setUploadErr("Sem conexão com o servidor. Verifique sua internet e tente novamente.");
+      setUploadErr(err?.message || "Sem conexão com o servidor. Tente novamente.");
       setScreen("error");
     }
   };
@@ -493,17 +670,16 @@ function CameraContent() {
   const finalScore = previewAnalysis?.score ?? null;
   const isFinalLow = finalScore !== null && finalScore < 40;
 
-  /* ── Tela de Sucesso ── */
   if (screen === "done") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[100dvh] px-6 gap-6 bg-slate-950 text-white">
+      <div className="flex flex-col items-center justify-center min-h-[100dvh] px-6 gap-6 bg-[#0D110F] text-white">
         <div
           className={`w-20 h-20 rounded-full flex items-center justify-center shadow-xl ${
             savedOffline
-              ? "bg-amber-500"
+              ? "bg-[#B45309]"
               : isFinalLow
-              ? "bg-amber-600"
-              : "bg-emerald-500 shadow-emerald-500/25"
+              ? "bg-[#B45309]"
+              : "bg-[#184E3A] border border-[#2E7D5B]"
           }`}
         >
           {savedOffline ? (
@@ -514,34 +690,35 @@ function CameraContent() {
         </div>
 
         <div className="text-center max-w-sm">
-          <h2 className="text-2xl font-extrabold text-white mb-2">
-            {savedOffline ? "Foto salva no dispositivo!" : "Foto salva no dataset!"}
+          <h2 className="text-2xl font-bold text-white mb-2">
+            {savedOffline ? "Foto salva no aparelho" : "Foto salva"}
           </h2>
-          <p className="text-slate-400 text-sm leading-relaxed">
+          <p className="text-white/70 text-sm leading-relaxed">
             {savedOffline ? (
               <>
-                A imagem de <strong className="text-white">{animalName || "animal"}</strong> será
-                enviada ao dataset assim que houver conexão com a internet.
+                A foto de <strong className="text-white">{animalName || "animal"}</strong> será
+                enviada automaticamente assim que houver conexão.
               </>
             ) : (
               <>
-                Imagem posterior de{" "}
-                <strong className="text-white">{animalName || "animal"}</strong> registrada com
-                sucesso para o dataset oficial da IA de ICS.
+                Foto de <strong className="text-white">{animalName || "animal"}</strong> salva com
+                sucesso e adicionada ao dataset na ficha.
               </>
             )}
           </p>
 
           {finalScore !== null && !savedOffline && (
-            <div
-              className={`mt-4 inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold border ${
-                finalScore >= 40
-                  ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
-                  : "bg-amber-500/15 text-amber-300 border-amber-500/30"
-              }`}
-            >
-              <Activity className="w-3.5 h-3.5" />
-              Confiança IA Registrada: {Math.round(finalScore)}%
+            <div className="mt-4 flex justify-center">
+              <div
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-semibold border ${
+                  finalScore >= 40
+                    ? "bg-[#184E3A]/60 text-[#74C69D] border-[#2E7D5B]/50"
+                    : "bg-[#B45309]/20 text-amber-200 border-[#B45309]/40"
+                }`}
+              >
+                <Activity className="w-3.5 h-3.5" />
+                <span>Enquadramento: {Math.round(finalScore)}%</span>
+              </div>
             </div>
           )}
         </div>
@@ -549,31 +726,30 @@ function CameraContent() {
         <div className="flex flex-col gap-3 w-full max-w-xs mt-2">
           <button
             onClick={() => router.push(`/animal/${animalId}`)}
-            className="btn-primary w-full py-4 text-sm"
+            className="btn-primary w-full py-3.5 text-sm"
           >
-            Ver Ficha do Animal
+            Ver ficha do animal
           </button>
           <button
             onClick={retake}
-            className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm font-bold text-white transition"
+            className="w-full py-3.5 bg-[#141A17] hover:bg-[#1E2722] border border-white/15 rounded-[10px] text-sm font-semibold text-white transition"
           >
-            Tirar Outra Foto
+            Tirar outra foto
           </button>
         </div>
       </div>
     );
   }
 
-  /* ── Tela de Erro ── */
   if (screen === "error") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[100dvh] px-6 gap-6 bg-slate-950 text-white">
+      <div className="flex flex-col items-center justify-center min-h-[100dvh] px-6 gap-6 bg-[#0D110F] text-white">
         <div className="w-20 h-20 bg-red-500/20 border border-red-500/40 rounded-full flex items-center justify-center">
           <X className="w-10 h-10 text-red-400 stroke-[2.5]" />
         </div>
         <div className="text-center max-w-xs">
           <h2 className="text-xl font-extrabold text-white mb-2">Falha no envio</h2>
-          <p className="text-slate-400 text-sm leading-relaxed">
+          <p className="text-white/70 text-sm leading-relaxed">
             {uploadErr || "Não foi possível salvar a imagem."}
           </p>
         </div>
@@ -583,7 +759,7 @@ function CameraContent() {
           </button>
           <button
             onClick={retake}
-            className="w-full py-3.5 bg-slate-800 rounded-xl text-white text-sm font-bold"
+            className="w-full py-3.5 bg-[#141A17] hover:bg-[#1E2722] border border-white/15 rounded-[10px] text-white text-sm font-semibold transition"
           >
             Escolher Outra Foto
           </button>
@@ -594,13 +770,12 @@ function CameraContent() {
 
   const isLiveGood = (liveScore ?? 0) >= 45;
 
-  /* ── Viewfinder + Preview + Uploading ── */
   return (
-    <div className="relative w-full h-[100dvh] bg-slate-950 overflow-hidden select-none">
+    <div className="relative w-full h-[100dvh] bg-[#0D110F] overflow-hidden select-none">
       <canvas ref={canvasRef} className="hidden" />
-      <canvas ref={scratchCanvasRef} className="hidden" />
+      <canvas ref={opticalCanvasRef} className="hidden" />
+      <canvas ref={liveAiCanvasRef} className="hidden" />
 
-      {/* Input de Seleção de Foto / Galeria */}
       <input
         ref={galleryRef}
         type="file"
@@ -609,7 +784,6 @@ function CameraContent() {
         onChange={handleFile}
       />
 
-      {/* Vídeo ao vivo */}
       <video
         ref={videoRef}
         autoPlay
@@ -621,18 +795,17 @@ function CameraContent() {
         style={{ display: screen === "viewfinder" ? "block" : "none" }}
       />
 
-      {/* Header Superior HUD */}
       <div
         className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-3 sm:px-4 py-2 gap-2"
         style={{
           paddingTop: "max(0.6rem, env(safe-area-inset-top))",
-          background: "linear-gradient(to bottom, rgba(2,6,23,0.92) 0%, transparent 100%)",
+          background: "linear-gradient(to bottom, rgba(13,17,15,0.92) 0%, transparent 100%)",
           display: screen === "uploading" ? "none" : "flex",
         }}
       >
         <button
           onClick={() => router.back()}
-          className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-2 min-h-[38px] rounded-md bg-white/10 hover:bg-white/20 active:scale-95 backdrop-blur-md text-white text-xs font-semibold shrink-0 touch-manipulation transition"
+          className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-2 min-h-[38px] rounded-[8px] bg-[#141A17]/85 hover:bg-[#1E2722] active:scale-95 border border-white/15 text-white text-xs font-semibold shrink-0 touch-manipulation transition"
           title="Voltar"
           aria-label="Voltar"
         >
@@ -641,137 +814,164 @@ function CameraContent() {
         </button>
 
         <div className="text-center min-w-0 px-1">
-          <p className="text-white font-bold text-xs sm:text-sm truncate max-w-[130px] xs:max-w-[170px] sm:max-w-[220px]">
-            {animalName || "Captura Guiada"}
+          <p className="text-white font-bold text-xs sm:text-sm truncate max-w-[160px] sm:max-w-[260px]">
+            {animalName || "Captura guiada"}
           </p>
-          <p className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-widest text-emerald-400 truncate">
-            Vista Posterior · Dataset ICS
+          <p className="text-[10px] font-medium text-[#74C69D] truncate">
+            {localAiStatus === "ready"
+              ? isOffline
+                ? "Modo offline ativo"
+                : "Guia automático ativo"
+              : localAiStatus === "loading"
+              ? "Preparando guia…"
+              : "Enquadre a traseira do animal"}
           </p>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            type="button"
-            onClick={handleSwitchCamera}
-            disabled={switchingCamera}
-            className="flex items-center gap-1 p-2 sm:px-2.5 sm:py-2 min-h-[38px] rounded-md bg-white/10 hover:bg-white/20 active:scale-95 backdrop-blur-md text-white text-xs font-semibold touch-manipulation transition"
-            title="Alternar entre câmeras ou inverter direção"
-            aria-label="Alternar câmera"
-          >
-            <SwitchCamera className={`w-4 h-4 ${switchingCamera ? "animate-spin text-emerald-400" : ""}`} />
-            <span className="hidden sm:inline">
-              {videoDevices.length > 1 ? `Lentes (${videoDevices.length})` : "Inverter"}
-            </span>
-          </button>
-
-          <button
-            onClick={() => galleryRef.current?.click()}
-            className="flex items-center gap-1 p-2 sm:px-2.5 sm:py-2 min-h-[38px] rounded-md bg-white/10 hover:bg-white/20 active:scale-95 backdrop-blur-md text-white text-xs font-semibold shrink-0 touch-manipulation transition"
-            title="Escolher da galeria"
-            aria-label="Escolher da galeria"
-          >
-            <Upload className="w-4 h-4" />
-            <span className="hidden xs:inline">Galeria</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setLiveAiEnabled((v) => !v)}
+          className={`px-2.5 py-1.5 min-h-[34px] rounded-[8px] text-[11px] font-semibold border shrink-0 transition ${
+            liveAiEnabled
+              ? "bg-[#184E3A]/85 border-[#2E7D5B] text-[#74C69D]"
+              : "bg-[#141A17]/85 border-white/15 text-white/75"
+          }`}
+          title="Alternar guia automático na prévia"
+        >
+          {liveAiEnabled ? "Guia ativo" : "Guia pausado"}
+        </button>
       </div>
 
-      {/* ── MODO VIEWFINDER COM CONFIANÇA EM TEMPO REAL BASEADA NA MIRA ── */}
       {screen === "viewfinder" && (
         <>
           {!camErr && (
             <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none p-6">
               <div
                 ref={reticleRef}
-                className={`relative w-[74%] max-w-[290px] aspect-[3/4] rounded-sm border transition-colors duration-200 shadow-[0_0_0_9999px_rgba(2,6,23,0.52)] ${
-                  isLiveGood ? "border-emerald-400/60" : "border-white/25"
+                className={`relative w-[74%] max-w-[290px] aspect-[3/4] rounded-[6px] border transition-colors duration-200 ${
+                  isLiveGood ? "border-[#74C69D]/80" : "border-white/30"
                 }`}
               >
-                {/* Badge de Confiança em Tempo Real no Topo do Guia */}
                 {vidReady && liveScore !== null && (
                   <div
-                    className={`absolute -top-10 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-bold whitespace-nowrap backdrop-blur-md border transition-colors ${
+                    className={`absolute -top-10 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1 rounded-[8px] text-[11px] font-bold whitespace-nowrap border transition-colors ${
                       isLiveGood
-                        ? "bg-slate-950/90 text-emerald-300 border-emerald-500/50"
-                        : "bg-slate-950/90 text-amber-300 border-amber-500/40"
+                        ? "bg-[#0D110F]/85 text-[#74C69D] border-[#2E7D5B]"
+                        : "bg-[#0D110F]/85 text-amber-200 border-[#B45309]/60"
                     }`}
                   >
-                    <Activity className="w-3.5 h-3.5 animate-pulse" />
-                    <span>{isLiveGood ? "Enquadramento Ideal" : "Ajuste o Enquadramento"} · {liveScore}%</span>
+                    <span>
+                      {isLiveGood ? "Enquadramento ideal" : "Ajuste o enquadramento"} ({liveScore}%)
+                    </span>
                   </div>
                 )}
 
-                {/* Cantoneiras Técnicas Ortogonais */}
                 <div
                   className={`absolute -top-0.5 -left-0.5 w-6 h-6 border-t-2 border-l-2 transition-colors ${
-                    isLiveGood ? "border-emerald-400" : "border-amber-400"
+                    isLiveGood ? "border-[#74C69D]" : "border-amber-400"
                   }`}
                 />
                 <div
                   className={`absolute -top-0.5 -right-0.5 w-6 h-6 border-t-2 border-r-2 transition-colors ${
-                    isLiveGood ? "border-emerald-400" : "border-amber-400"
+                    isLiveGood ? "border-[#74C69D]" : "border-amber-400"
                   }`}
                 />
                 <div
                   className={`absolute -bottom-0.5 -left-0.5 w-6 h-6 border-b-2 border-l-2 transition-colors ${
-                    isLiveGood ? "border-emerald-400" : "border-amber-400"
+                    isLiveGood ? "border-[#74C69D]" : "border-amber-400"
                   }`}
                 />
                 <div
                   className={`absolute -bottom-0.5 -right-0.5 w-6 h-6 border-b-2 border-r-2 transition-colors ${
-                    isLiveGood ? "border-emerald-400" : "border-amber-400"
+                    isLiveGood ? "border-[#74C69D]" : "border-amber-400"
                   }`}
                 />
 
-                {/* Silhueta guia central da vaca (garupa e coluna anatômica) */}
+                {/* Silhueta anatômica bovina na mira */}
                 <svg
                   viewBox="0 0 200 260"
                   className="w-full h-full opacity-40 pointer-events-none"
                   fill="none"
-                  stroke={isLiveGood ? "#34D399" : "#FBBF24"}
+                  stroke={isLiveGood ? "#74C69D" : "#FBBF24"}
                   strokeWidth="2"
                   strokeDasharray="6 6"
                 >
-                  {/* Linha central da coluna/cauda */}
                   <line x1="100" y1="35" x2="100" y2="225" />
-                  {/* Contorno referencial de garupa e ísquios */}
                   <path d="M50 75 Q100 50 150 75 L160 185 Q100 200 40 185 Z" />
                 </svg>
 
-                {/* Linhas de retículo e mira técnica central */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-25">
                   <div className="w-6 h-0.5 bg-white/70" />
                   <div className="h-6 w-0.5 bg-white/70 -ml-3" />
                 </div>
 
-                <div className="absolute -bottom-9 left-1/2 -translate-x-1/2 bg-slate-950/90 border border-white/15 text-white/90 text-[11px] font-semibold px-3 py-1 rounded-md whitespace-nowrap backdrop-blur-md">
+                <div className="absolute -bottom-9 left-1/2 -translate-x-1/2 bg-[#0D110F]/85 border border-white/15 text-white/95 text-[11px] font-semibold px-3 py-1 rounded-[8px] whitespace-nowrap">
                   {liveStatus}
                 </div>
+
+                {/* Indicadores compactos de ângulo e distância */}
+                {(tiltStatus.available || tiltStatus.needsPermission || distanceGuide.label) && (
+                  <div className="absolute -bottom-[4.25rem] left-1/2 -translate-x-1/2 flex flex-wrap items-center justify-center gap-1.5 w-max max-w-[92vw]">
+                    {tiltStatus.needsPermission ? (
+                      <button
+                        type="button"
+                        onClick={requestOrientationPermission}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[6px] bg-[#0D110F]/85 border border-white/20 text-[10px] font-semibold text-white/85"
+                      >
+                        <Compass className="w-3 h-3 text-[#74C69D]" />
+                        Ativar nível
+                      </button>
+                    ) : (
+                      tiltStatus.available && (
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-[6px] border text-[10px] font-semibold ${
+                            tiltStatus.ok
+                              ? "bg-[#0D110F]/85 border-[#2E7D5B] text-[#74C69D]"
+                              : "bg-[#0D110F]/85 border-[#B45309]/60 text-amber-200"
+                          }`}
+                        >
+                          <Compass className="w-3 h-3" />
+                          {tiltStatus.label}
+                        </span>
+                      )
+                    )}
+
+                    {distanceGuide.label && (
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-[6px] border text-[10px] font-semibold ${
+                          distanceGuide.status === "ideal"
+                            ? "bg-[#0D110F]/85 border-[#2E7D5B] text-[#74C69D]"
+                            : "bg-[#0D110F]/85 border-[#B45309]/60 text-amber-200"
+                        }`}
+                      >
+                        {distanceGuide.label}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {/* Carregando Câmera */}
           {!vidReady && !camErr && (
             <div className="absolute inset-0 z-10 flex items-center justify-center">
-              <div className="flex flex-col items-center gap-3 text-white/70 text-sm font-medium">
-                <RefreshCcw className="w-6 h-6 animate-spin text-emerald-400" />
-                <span>Inicializando sensor de câmera…</span>
+              <div className="flex flex-col items-center gap-3 text-white/75 text-sm font-medium">
+                <RefreshCcw className="w-6 h-6 animate-spin text-[#74C69D]" />
+                <span>Inicializando câmera…</span>
               </div>
             </div>
           )}
 
-          {/* Fallback quando câmera ao vivo não está disponível */}
           {camErr && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 p-6 text-center bg-slate-950/95">
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-emerald-500/15 border border-emerald-500/30">
-                <AlertCircle className="w-8 h-8 text-emerald-400" />
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-5 p-6 text-center bg-[#0D110F]/95">
+              <div className="w-16 h-16 rounded-[14px] flex items-center justify-center bg-[#184E3A]/40 border border-[#2E7D5B]">
+                <AlertCircle className="w-8 h-8 text-[#74C69D]" />
               </div>
               <div className="max-w-xs">
                 <h3 className="text-white font-extrabold text-base mb-1">
-                  Câmera Indisponível
+                  Câmera indisponível
                 </h3>
-                <p className="text-slate-400 text-xs leading-relaxed">{camErr}</p>
+                <p className="text-white/65 text-xs leading-relaxed">{camErr}</p>
               </div>
               <div className="flex flex-col gap-3 w-full max-w-xs">
                 <button
@@ -779,21 +979,19 @@ function CameraContent() {
                   className="btn-primary w-full py-3.5 text-sm flex items-center justify-center gap-2"
                 >
                   <ImagePlus className="w-4 h-4" />
-                  Selecionar Foto da Galeria
+                  Selecionar foto da galeria
                 </button>
               </div>
             </div>
           )}
 
-          {/* Controles de Disparo */}
           <div
             className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-around py-4 px-4 sm:px-8"
             style={{
               paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))",
-              background: "linear-gradient(to top, rgba(2,6,23,0.92) 0%, transparent 100%)",
+              background: "linear-gradient(to top, rgba(13,17,15,0.94) 0%, transparent 100%)",
             }}
           >
-            {/* 1. Trocar Câmera / Lentes */}
             <button
               type="button"
               onClick={handleSwitchCamera}
@@ -802,28 +1000,26 @@ function CameraContent() {
               title="Alternar entre câmeras ou inverter direção"
               aria-label="Trocar de câmera"
             >
-              <div className="w-11 h-11 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/10">
-                <SwitchCamera className={`w-5 h-5 ${switchingCamera ? "animate-spin text-emerald-400" : ""}`} />
+              <div className="w-11 h-11 rounded-[10px] bg-[#141A17]/85 flex items-center justify-center border border-white/15">
+                <SwitchCamera className={`w-5 h-5 ${switchingCamera ? "animate-spin text-[#74C69D]" : ""}`} />
               </div>
               <span className="text-[10px] font-semibold">
                 {videoDevices.length > 1 ? `Lentes (${videoDevices.length})` : "Inverter"}
               </span>
             </button>
 
-            {/* 2. Disparo em Tempo Real (Frame do visor com Confiança IA) */}
             <button
               type="button"
               onClick={handleCapture}
               disabled={!vidReady || !!camErr}
               aria-label="Capturar foto agora"
-              className="w-16 h-16 sm:w-18 sm:h-18 rounded-full border-2 border-emerald-400 p-1 flex items-center justify-center active:scale-95 disabled:opacity-35 transition-transform bg-emerald-500/10 shadow-lg shadow-emerald-500/25"
+              className="w-16 h-16 sm:w-18 sm:h-18 rounded-full border-2 border-[#74C69D] p-1 flex items-center justify-center active:scale-95 disabled:opacity-35 transition-transform bg-[#184E3A]/30 shadow-lg"
             >
-              <div className="w-full h-full rounded-full bg-emerald-500 hover:bg-emerald-400 flex items-center justify-center transition">
-                <Camera className="w-7 h-7 text-slate-950" />
+              <div className="w-full h-full rounded-full bg-[#2E7D5B] hover:bg-[#38946D] flex items-center justify-center transition">
+                <Camera className="w-7 h-7 text-white" />
               </div>
             </button>
 
-            {/* 3. Galeria de Fotos */}
             <button
               type="button"
               onClick={() => {
@@ -835,7 +1031,7 @@ function CameraContent() {
               className="flex flex-col items-center gap-1 text-white/80 hover:text-white transition active:scale-95"
               aria-label="Enviar da galeria"
             >
-              <div className="w-11 h-11 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/10">
+              <div className="w-11 h-11 rounded-[10px] bg-[#141A17]/85 flex items-center justify-center border border-white/15">
                 <ImagePlus className="w-5 h-5" />
               </div>
               <span className="text-[10px] font-semibold">Galeria</span>
@@ -844,35 +1040,63 @@ function CameraContent() {
         </>
       )}
 
-      {/* ── MODO PREVIEW: EXIBE CONFIANÇA IA ANTES DO UPLOAD (SEM CHECKBOXES!) ── */}
       {screen === "preview" && previewUrl && (
-        <div className="absolute inset-0 z-30 flex flex-col bg-slate-950">
-          {/* Imagem Capturada */}
+        <div className="absolute inset-0 z-30 flex flex-col bg-[#0D110F]">
           <div className="flex-1 relative flex items-center justify-center p-3 sm:p-4 overflow-hidden">
-            <img
-              src={previewUrl}
-              alt="Preview da captura"
-              className="max-w-full max-h-full object-contain rounded-lg border border-white/10 shadow-xl"
-            />
+            <div className="relative inline-flex max-w-full max-h-full items-center justify-center">
+              <img
+                src={previewUrl}
+                alt="Preview da captura"
+                className="max-w-full max-h-[68dvh] w-auto h-auto object-contain rounded-[10px] border border-white/10 shadow-xl"
+              />
+              {previewAnalysis?.source === "yolo-onnx" &&
+                previewAnalysis.box &&
+                previewAnalysis.box.w > 0 &&
+                previewAnalysis.score >= 15 && (
+                  <div
+                    aria-label="Região identificada na foto"
+                    className={`pointer-events-none absolute rounded border-2 ${
+                      previewAnalysis.score >= 40
+                        ? "border-[#74C69D] shadow-[0_0_0_1px_rgba(46,125,91,0.5)]"
+                        : "border-amber-400 shadow-[0_0_0_1px_rgba(251,191,36,0.45)]"
+                    }`}
+                    style={{
+                      left: `${Math.max(0, (previewAnalysis.box.cx - previewAnalysis.box.w / 2) * 100)}%`,
+                      top: `${Math.max(0, (previewAnalysis.box.cy - previewAnalysis.box.h / 2) * 100)}%`,
+                      width: `${Math.min(100, previewAnalysis.box.w * 100)}%`,
+                      height: `${Math.min(100, previewAnalysis.box.h * 100)}%`,
+                    }}
+                  >
+                    <span
+                      className={`absolute -top-5 left-0 px-1.5 py-0.5 rounded-[6px] text-[10px] font-bold whitespace-nowrap ${
+                        previewAnalysis.score >= 40
+                          ? "bg-[#184E3A] text-white"
+                          : "bg-amber-400 text-[#0D110F]"
+                      }`}
+                    >
+                      Enquadramento {Math.round(previewAnalysis.score)}%
+                    </span>
+                  </div>
+                )}
+            </div>
             {imageMeta && (
-              <div className="absolute top-14 left-1/2 -translate-x-1/2 bg-slate-900/90 border border-white/10 text-slate-300 text-[11px] font-semibold px-2.5 py-0.5 rounded-md backdrop-blur-md">
+              <div className="absolute top-14 left-1/2 -translate-x-1/2 bg-[#141A17]/90 border border-white/10 text-white/75 text-[11px] font-semibold px-2.5 py-0.5 rounded-[7px] backdrop-blur-md">
                 {imageMeta}
               </div>
             )}
           </div>
 
-          {/* Card de Diagnóstico de Confiança Pré-Upload */}
           <div className="px-3 pb-2 max-w-lg mx-auto w-full">
-            <div className="rounded-lg bg-slate-900/95 border border-white/10 p-3.5 backdrop-blur-md">
+            <div className="rounded-[12px] bg-[#141A17]/95 border border-white/10 p-3.5 backdrop-blur-md">
               {scoringPreview ? (
                 <div className="flex items-center gap-3 py-1">
-                  <Loader2 className="w-5 h-5 animate-spin text-emerald-400 shrink-0" />
+                  <Loader2 className="w-5 h-5 animate-spin text-[#74C69D] shrink-0" />
                   <div>
                     <p className="text-xs sm:text-sm font-bold text-white">
-                      Analisando imagem com IA antes do envio…
+                      Verificando enquadramento…
                     </p>
-                    <p className="text-[11px] text-slate-400">
-                      Verificando enquadramento da traseira e nitidez
+                    <p className="text-[11px] text-white/60">
+                      Analisando nitidez e posição do animal
                     </p>
                   </div>
                 </div>
@@ -882,37 +1106,34 @@ function CameraContent() {
                     <div className="flex items-center gap-1.5">
                       <Activity
                         className={`w-4 h-4 ${
-                          previewAnalysis.score >= 40 ? "text-emerald-400" : "text-amber-400"
+                          previewAnalysis.score >= 40 ? "text-[#74C69D]" : "text-amber-400"
                         }`}
                       />
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                        Diagnóstico de Confiança
+                      <span className="text-xs font-bold uppercase tracking-wider text-white/75">
+                        Qualidade do enquadramento
                       </span>
                     </div>
                     <span
                       className={`text-xs font-bold px-2 py-0.5 rounded-md ${
-                        previewAnalysis.score >= 65
-                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                          : previewAnalysis.score >= 40
-                          ? "bg-teal-500/20 text-teal-300 border border-teal-500/30"
-                          : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                        previewAnalysis.score >= 40
+                          ? "bg-[#184E3A]/60 text-[#74C69D] border border-[#2E7D5B]/50"
+                          : "bg-[#B45309]/25 text-amber-200 border border-[#B45309]/40"
                       }`}
                     >
-                      Confiança: {Math.round(previewAnalysis.score)}%
+                      {Math.round(previewAnalysis.score)}%
                     </span>
                   </div>
 
-                  {/* Barra de progresso de Confiança */}
-                  <div className="w-full h-1.5 rounded-sm bg-slate-800 overflow-hidden">
+                  <div className="w-full h-1.5 rounded-sm bg-[#1E2722] overflow-hidden">
                     <div
                       className={`h-full rounded-sm transition-all duration-500 ${
-                        previewAnalysis.score >= 40 ? "bg-emerald-500" : "bg-amber-500"
+                        previewAnalysis.score >= 40 ? "bg-[#2E7D5B]" : "bg-[#B45309]"
                       }`}
                       style={{ width: `${Math.max(8, Math.min(100, previewAnalysis.score))}%` }}
                     />
                   </div>
 
-                  <div className="flex items-start gap-1.5 text-xs text-slate-300 leading-snug">
+                  <div className="flex items-start gap-1.5 text-xs text-white/75 leading-snug">
                     {previewAnalysis.lowQuality && (
                       <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
                     )}
@@ -923,14 +1144,13 @@ function CameraContent() {
             </div>
           </div>
 
-          {/* Botões Diretos: Refazer ou Salvar no Dataset */}
           <div
-            className="flex gap-2.5 px-3 py-3 bg-slate-900/95 border-t border-white/10 max-w-lg mx-auto w-full"
+            className="flex gap-2.5 px-3 py-3 bg-[#141A17]/95 border-t border-white/10 max-w-lg mx-auto w-full"
             style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
           >
             <button
               onClick={retake}
-              className="flex-1 flex items-center justify-center gap-1.5 py-3 min-h-[44px] bg-slate-800 hover:bg-slate-700 active:scale-98 rounded-lg text-white font-semibold text-xs sm:text-sm touch-manipulation transition"
+              className="flex-1 flex items-center justify-center gap-1.5 py-3 min-h-[44px] bg-[#1E2722] hover:bg-[#26322B] active:scale-98 rounded-[10px] text-white font-semibold text-xs sm:text-sm touch-manipulation transition"
             >
               <RotateCcw className="w-4 h-4" />
               Tirar Outra
@@ -938,24 +1158,23 @@ function CameraContent() {
             <button
               onClick={handleSave}
               disabled={scoringPreview}
-              className="flex-1 btn-primary py-3 min-h-[44px] rounded-lg text-xs sm:text-sm active:scale-98 touch-manipulation justify-center"
+              className="flex-1 btn-primary py-3 min-h-[44px] rounded-[10px] text-xs sm:text-sm active:scale-98 touch-manipulation justify-center font-bold"
             >
               <Check className="w-4 h-4" />
-              Salvar no Dataset
+              Salvar Avaliação
             </button>
           </div>
         </div>
       )}
 
-      {/* ── MODO UPLOADING ── */}
       {screen === "uploading" && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-md">
-          <div className="bg-slate-900 border border-white/10 rounded-3xl p-8 flex flex-col items-center gap-4 max-w-xs w-full text-center shadow-2xl">
-            <RefreshCcw className="w-10 h-10 animate-spin text-emerald-400" />
+        <div className="absolute inset-0 z-40 flex items-center justify-center p-6 bg-[#0D110F]/90 backdrop-blur-md">
+          <div className="bg-[#141A17] border border-white/10 rounded-[14px] p-8 flex flex-col items-center gap-4 max-w-xs w-full text-center shadow-2xl">
+            <RefreshCcw className="w-9 h-9 animate-spin text-[#74C69D]" />
             <div>
-              <p className="text-white font-extrabold text-base">Salvando foto no dataset…</p>
-              <p className="text-slate-400 text-xs mt-1">
-                Processando imagem para o banco de dados oficial
+              <p className="text-white font-bold text-base">Salvando captura…</p>
+              <p className="text-white/60 text-xs mt-1">
+                Enviando imagem para a ficha do animal
               </p>
             </div>
           </div>
@@ -969,8 +1188,8 @@ export default function CameraPage() {
   return (
     <Suspense
       fallback={
-        <div className="h-[100dvh] flex flex-col items-center justify-center gap-3 bg-slate-950 text-white/60 text-sm">
-          <RefreshCcw className="w-6 h-6 animate-spin text-emerald-400" />
+        <div className="h-[100dvh] flex flex-col items-center justify-center gap-3 bg-[#0D110F] text-white/60 text-sm">
+          <RefreshCcw className="w-6 h-6 animate-spin text-[#74C69D]" />
           <span>Preparando câmera…</span>
         </div>
       }

@@ -2,21 +2,20 @@
  * Motor Client-Side de Análise Visual em Tempo Real e Pré-Upload (`src/lib/vision-client.ts`).
  *
  * Responsabilidades:
- * 1. **Projeção Geométrica da Mira (`getReticleCropCoordinates`)**:
- *    Calcula a janela em pixels no sensor nativo correspondente exatamente ao recorte da mira na tela,
- *    compensando escala de `object-cover` e centralização do feed de vídeo.
- * 2. **Análise Instantânea de Confiança em Tempo Real Baseada no Recorte (`computeInstantVideoScore`)**:
- *    Roda a 10–15 FPS direto no navegador sobre um canvas `96x96` extraído EXCLUSIVAMENTE da área
- *    delimitada pela mira do operador, calculando nitidez (gradiente de Sobel), iluminação
- *    e contraste central (ROI da garupa) com latência < 2ms.
- * 3. **Inferência IA Híbrida (`evaluatePhotoScoreBeforeUpload`)**:
- *    Envia o frame recortado para `POST /api/ai/score` (modelo YOLO ONNX calibrado no backend)
- *    para avaliação prévia da confiança antes do upload definitivo.
+ * 1. Projeção Geométrica da Mira (`getReticleCropCoordinates`).
+ * 2. Análise Instantânea de Confiança em Tempo Real Baseada no Recorte (`computeInstantVideoScore`).
+ * 3. Inferência IA Híbrida (`evaluatePhotoScoreBeforeUpload`) integrada ao backend remoto.
  */
+import { getApiUrl } from "./api";
+import { analyzeBlobLocally } from "./local-onnx";
 
 export interface VisionScoreResult {
   score: number;
+  confidence?: number;
   lowQuality: boolean;
+  error?: boolean;
+  localRuntime?: boolean;
+  rejectedReason?: "human-detected" | "non-bovine-detected";
   source: "yolo-onnx" | "vision-analysis" | "client-optical";
   feedback: string;
   box?: {
@@ -50,25 +49,21 @@ export function getReticleCropCoordinates(
     return { sx: 0, sy: 0, sw: vw, sh: vh };
   }
 
-  // O elemento <video> usa 'object-cover', logo o fator de escala aplicado à dimensão do sensor é:
   const scale = Math.max(videoRect.width / vw, videoRect.height / vh);
   const renderedW = vw * scale;
   const renderedH = vh * scale;
 
-  // Deslocamento da área renderizada do vídeo em relação ao seu bounding box
   const offsetX = (videoRect.width - renderedW) / 2;
   const offsetY = (videoRect.height - renderedH) / 2;
 
   const screenX = reticleRect.left - videoRect.left;
   const screenY = reticleRect.top - videoRect.top;
 
-  // Projeção inversa: da tela para os pixels brutos da imagem
   const rawSx = (screenX - offsetX) / scale;
   const rawSy = (screenY - offsetY) / scale;
   const rawSw = reticleRect.width / scale;
   const rawSh = reticleRect.height / scale;
 
-  // Clampa com margem mínima segura para evitar coordenadas fora do canvas
   const sx = Math.max(0, Math.min(vw - 20, rawSx));
   const sy = Math.max(0, Math.min(vh - 20, rawSy));
   const sw = Math.max(20, Math.min(vw - sx, rawSw));
@@ -78,8 +73,81 @@ export function getReticleCropCoordinates(
 }
 
 /**
- * Calcula métricas ópticas instantâneas (< 2ms) diretamente da REGIÃO RECORTADA pela mira do `<video>`
- * para alimentar a confiança ao vivo enquanto o operador enquadra a traseira bovina.
+ * Calcula a região recomendada de captura no vídeo (`sx, sy, sw, sh`) alinhada ao que
+ * o operador realmente vê na tela (`object-cover` + margem de segurança de ~35% ao redor da mira).
+ *
+ * Por que isso melhora o enquadramento da IA:
+ * Em celulares na vertical, o sensor da câmera costuma entregar 16:9 horizontal (ex.: 1920x1080)
+ * enquanto `<video class="object-cover">` mostra apenas a faixa central. Sem este recorte,
+ * paredes/curral fora da tela entram na foto, reduzindo a traseira do animal no tensor 640x640 do YOLO.
+ */
+export function getFramingCaptureRect(
+  video: HTMLVideoElement,
+  reticleEl?: HTMLElement | null
+): { sx: number; sy: number; sw: number; sh: number } {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh) return { sx: 0, sy: 0, sw: 0, sh: 0 };
+
+  const videoRect = video.getBoundingClientRect();
+  if (videoRect.width <= 0 || videoRect.height <= 0) {
+    return { sx: 0, sy: 0, sw: vw, sh: vh };
+  }
+
+  // Área visível na tela após `object-cover`
+  const scale = Math.max(videoRect.width / vw, videoRect.height / vh);
+  const renderedW = vw * scale;
+  const renderedH = vh * scale;
+  const offsetX = (videoRect.width - renderedW) / 2;
+  const offsetY = (videoRect.height - renderedH) / 2;
+
+  const visSx = Math.max(0, -offsetX / scale);
+  const visSy = Math.max(0, -offsetY / scale);
+  const visSw = Math.min(vw - visSx, videoRect.width / scale);
+  const visSh = Math.min(vh - visSy, videoRect.height / scale);
+
+  if (!reticleEl) {
+    return {
+      sx: Math.round(visSx),
+      sy: Math.round(visSy),
+      sw: Math.max(64, Math.round(visSw)),
+      sh: Math.max(64, Math.round(visSh)),
+    };
+  }
+
+  const reticle = getReticleCropCoordinates(video, reticleEl);
+  if (reticle.sw <= 0 || reticle.sh <= 0) {
+    return {
+      sx: Math.round(visSx),
+      sy: Math.round(visSy),
+      sw: Math.max(64, Math.round(visSw)),
+      sh: Math.max(64, Math.round(visSh)),
+    };
+  }
+
+  // Expande a mira com margem anatômica proporcional (evita distorção excessiva entre
+  // webcams landscape 16:9 de PC e câmeras portrait 9:16 de celular), preservando os limites visíveis.
+  const cx = reticle.sx + reticle.sw / 2;
+  const cy = reticle.sy + reticle.sh / 2;
+  const paddedW = Math.min(visSw, Math.max(reticle.sw * 1.48, reticle.sh * 1.12));
+  const paddedH = Math.min(visSh, Math.max(reticle.sh * 1.38, reticle.sw * 1.18));
+
+  let sx = cx - paddedW / 2;
+  let sy = cy - paddedH / 2;
+  sx = Math.max(visSx, Math.min(visSx + visSw - paddedW, sx));
+  sy = Math.max(visSy, Math.min(visSy + visSh - paddedH, sy));
+
+  return {
+    sx: Math.round(sx),
+    sy: Math.round(sy),
+    sw: Math.max(64, Math.round(paddedW)),
+    sh: Math.max(64, Math.round(paddedH)),
+  };
+}
+
+/**
+ * Calcula métricas ópticas instantâneas diretamente da REGIÃO RECORTADA pela mira do `<video>`
+ * para orientar iluminação e foco sem bloquear o preview em tempo real.
  */
 export function computeInstantVideoScore(
   video: HTMLVideoElement,
@@ -93,13 +161,12 @@ export function computeInstantVideoScore(
   const { sx, sy, sw, sh } = getReticleCropCoordinates(video, reticleEl);
   if (sw <= 0 || sh <= 0) return null;
 
-  const SIZE = 96;
+  const SIZE = 64;
   scratchCanvas.width = SIZE;
   scratchCanvas.height = SIZE;
   const ctx = scratchCanvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return null;
 
-  // Desenha EXCLUSIVAMENTE a sub-região correspondente ao enquadramento da mira (recorte/crop)
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, SIZE, SIZE);
   const { data } = ctx.getImageData(0, 0, SIZE, SIZE);
 
@@ -122,25 +189,27 @@ export function computeInstantVideoScore(
   const variance = Math.max(0, sumLumaSq / totalPixels - mean * mean);
   const stdDev = Math.sqrt(variance);
 
-  // Calcula energia de borda (foco/nitidez) e presença de massa anatômica no centro da mira
-  for (let y = 16; y < SIZE - 16; y++) {
-    for (let x = 16; x < SIZE - 16; x++) {
+  const margin = 10;
+  const centerStart = 16;
+  const centerEnd = 48;
+  let centerCount = 0;
+  for (let y = margin; y < SIZE - margin; y++) {
+    for (let x = margin; x < SIZE - margin; x++) {
       const i = y * SIZE + x;
       const gx = Math.abs(luma[i + 1] - luma[i - 1]);
       const gy = Math.abs(luma[i + SIZE] - luma[i - SIZE]);
-      const grad = gx + gy;
-      edgeEnergy += grad;
-      if (x >= 24 && x <= 72 && y >= 20 && y <= 76) {
+      edgeEnergy += gx + gy;
+      if (x >= centerStart && x <= centerEnd && y >= centerStart && y <= centerEnd) {
         centerContrast += Math.abs(luma[i] - mean);
+        centerCount++;
       }
     }
   }
 
-  const innerPixels = (SIZE - 32) * (SIZE - 32);
+  const innerPixels = (SIZE - margin * 2) * (SIZE - margin * 2);
   const avgEdge = edgeEnergy / innerPixels;
-  const avgCenterDiff = centerContrast / (48 * 56);
+  const avgCenterDiff = centerContrast / Math.max(1, centerCount);
 
-  // Fator de estabilidade de iluminação
   let lightFactor = 1.0;
   if (mean < 32) lightFactor = Math.max(0.2, mean / 32);
   else if (mean > 228) lightFactor = Math.max(0.25, (255 - mean) / 27);
@@ -149,51 +218,91 @@ export function computeInstantVideoScore(
   const contrastScore = Math.min(1, stdDev / 48);
   const subjectScore = Math.min(1, avgCenterDiff / 28);
 
+  // Avaliação puramente óptica fica limitada a 72% para nunca iludir com "96% ideal" sem detecção do modelo
   const raw =
     (sharpnessScore * 0.45 + contrastScore * 0.3 + subjectScore * 0.25) *
     lightFactor *
-    95;
-  const score = Math.round(Math.max(8, Math.min(96, raw)));
+    72;
+  const score = Math.round(Math.max(8, Math.min(72, raw)));
 
-  let statusText = "Posicione a garupa na mira";
+  let statusText = "Centralize a garupa na mira";
   if (mean < 35) statusText = "Ambiente muito escuro";
   else if (mean > 228) statusText = "Excesso de luz / contraluz";
-  else if (avgEdge < 9) statusText = "Foco instável";
-  else if (score >= 70) statusText = "Enquadramento ideal · Pronto";
-  else if (score >= 45) statusText = "Traseira detectada na mira";
+  else if (avgEdge < 9) statusText = "Imagem desfocada / sem nitidez";
+  else if (score >= 52) statusText = "Iluminação e nitidez boas";
 
   return { score, statusText };
 }
 
 /**
- * Avalia a Confiança da IA de um Blob de imagem ANTES do upload definitivo (ou em background no live).
+ * Avalia a Confiança de Enquadramento de um Blob de imagem ANTES do envio:
+ * 1. Prioridade absoluta (Edge AI Local): executa `identifier.onnx`, `version-RFB-320.onnx` e
+ *    `yolo11n.onnx` diretamente no dispositivo do usuário (100% funcional offline, zero latência de rede).
+ * 2. Fallback remoto: apenas caso o navegador não suporte WebAssembly/ONNX e haja internet.
  */
 export async function evaluatePhotoScoreBeforeUpload(
-  blob: Blob
+  blob: Blob,
+  signal?: AbortSignal,
+  mode: "live" | "full" = "full"
 ): Promise<VisionScoreResult> {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+
+  try {
+    const localResult = await analyzeBlobLocally(blob, mode);
+    if (signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+    if (localResult) {
+      return { ...localResult, localRuntime: true };
+    }
+  } catch (err) {
+    if ((err as Error)?.name === "AbortError") {
+      throw err;
+    }
+  }
+
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    return {
+      score: 0,
+      lowQuality: true,
+      error: true,
+      localRuntime: true,
+      source: "client-optical",
+      feedback: "IA local indisponível neste navegador no modo offline.",
+    };
+  }
+
   try {
     const fd = new FormData();
     fd.append("file", blob, "frame.jpg");
 
-    const res = await fetch("/api/ai/score", {
+    const baseUrl = getApiUrl();
+    const qs = mode === "live" ? "?mode=live" : "";
+    const res = await fetch(`${baseUrl}/api/photos/score${qs}`, {
       method: "POST",
       body: fd,
+      signal,
     });
 
     if (res.ok) {
       const data = (await res.json()) as VisionScoreResult;
       if (typeof data.score === "number") {
-        return data;
+        return { ...data, localRuntime: false };
       }
     }
-  } catch {
-    // Fallback offline estruturado abaixo
+  } catch (err) {
+    if ((err as Error)?.name === "AbortError") {
+      throw err;
+    }
   }
 
   return {
-    score: 50.0,
-    lowQuality: false,
+    score: 0,
+    lowQuality: true,
+    error: true,
     source: "client-optical",
-    feedback: "Análise óptica preliminar concluída. O modelo YOLO validará no upload.",
+    feedback: "Não foi possível analisar a imagem agora — tente novamente.",
   };
 }

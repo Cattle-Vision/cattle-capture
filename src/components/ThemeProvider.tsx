@@ -2,11 +2,6 @@
 
 /**
  * Gerenciador de Tema Claro / Escuro e Registro PWA (`src/components/ThemeProvider.tsx`).
- *
- * Responsabilidades:
- * - Sincronizar o tema (`light` | `dark`) com a classe `.dark` no elemento `<html>`
- *   e persistir a escolha do usuário em `localStorage` (`cattle-theme`).
- * - Registrar o Service Worker (`/sw.js`) para habilitar instalação PWA no celular.
  */
 import { createContext, useContext, useEffect, useState } from "react";
 
@@ -29,16 +24,36 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const stored = localStorage.getItem("cattle-theme") as Theme | null;
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const initial: Theme = stored === "dark" || stored === "light" ? stored : prefersDark ? "dark" : "light";
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const initial: Theme =
+      stored === "dark" || stored === "light"
+        ? stored
+        : mediaQuery.matches
+        ? "dark"
+        : "light";
 
     setThemeState(initial);
     document.documentElement.classList.toggle("dark", initial === "dark");
+
+    const handleSystemThemeChange = (e: MediaQueryListEvent) => {
+      const currentStored = localStorage.getItem("cattle-theme");
+      if (!currentStored) {
+        const next = e.matches ? "dark" : "light";
+        setThemeState(next);
+        document.documentElement.classList.toggle("dark", next === "dark");
+      }
+    };
+
+    mediaQuery.addEventListener("change", handleSystemThemeChange);
 
     // Registro do Service Worker para PWA Mobile
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     }
+
+    return () => {
+      mediaQuery.removeEventListener("change", handleSystemThemeChange);
+    };
   }, []);
 
   const setTheme = (next: Theme) => {
@@ -48,7 +63,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   };
 
   const toggleTheme = () => {
-    setTheme(theme === "dark" ? "light" : "dark");
+    const isCurrentlyDark = document.documentElement.classList.contains("dark");
+    setTheme(isCurrentlyDark ? "light" : "dark");
   };
 
   return (

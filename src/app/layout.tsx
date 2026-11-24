@@ -1,14 +1,27 @@
 import type { Metadata, Viewport } from "next";
-import { Analytics } from "@vercel/analytics/react";
+import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import { Providers } from "@/components/Providers";
 import { SyncManager } from "./SyncManager";
-import { ToastProvider } from "@/components/ui/Toast";
 import "./globals.css";
+
+const plusJakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["500", "700"],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#059669" },
-    { media: "(prefers-color-scheme: dark)", color: "#090D16" },
+    { media: "(prefers-color-scheme: light)", color: "#184E3A" },
+    { media: "(prefers-color-scheme: dark)", color: "#0D110F" },
   ],
   width: "device-width",
   initialScale: 1,
@@ -16,13 +29,16 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "CattleCapture · Dataset para IA de ICS Bovino",
+  title: "CattleCapture · Coleta Fotográfica e Dataset Bovino",
   description:
-    "Plataforma colaborativa de coleta de imagens anatômicas da região posterior bovina para treinamento da IA de Índice de Condição Corporal (ICS / ECC).",
+    "Plataforma de campo para identificação RFID, captura fotográfica anatômica validada por IA e curadoria de dataset bovino.",
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: "/icon.svg",
-    apple: "/icon.svg",
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
   appleWebApp: {
     capable: true,
@@ -47,23 +63,18 @@ const themeInitScript = `
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR" suppressHydrationWarning>
+    <html
+      lang="pt-BR"
+      suppressHydrationWarning
+      className={`${plusJakarta.variable} ${jetbrainsMono.variable}`}
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap"
-          rel="stylesheet"
-        />
       </head>
       <body className="min-h-[100dvh] antialiased">
         <Providers>
-          <ToastProvider>
-            <SyncManager />
-            {children}
-            <Analytics />
-          </ToastProvider>
+          <SyncManager />
+          {children}
         </Providers>
       </body>
     </html>

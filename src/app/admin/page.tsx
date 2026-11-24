@@ -2,28 +2,14 @@
 
 /**
  * Painel Administrativo, Curadoria do Dataset e Gestão de Usuários (`src/app/admin/page.tsx`).
- *
- * Funcionalidades:
- * - Aba 1 ("Rebanho & Dataset"):
- *   - Curadoria global de animais e fotos com miniaturas via `/api/photos/[id]`.
- *   - Inspeção rápida via `PhotoLightbox` e exportação `.ZIP` completa.
- * - Aba 2 ("Usuários & Admins"):
- *   - Lista todos os usuários cadastrados com contagem de animais e fotos.
- *   - Permite promover qualquer usuário comum (`USER`) a administrador (`ADMIN`)
- *     ou rebaixar para `USER` com 1 clique (`PATCH /api/admin/users/[id]`).
- *   - Permite cadastrar novos usuários/admins ou promover por e-mail (`POST /api/admin/users`).
- *   - Permite remover contas de usuários (`DELETE /api/admin/users/[id]`).
- * - Suporte integral a Tema Claro/Escuro e barra inferior Mobile PWA (`MobileNav`).
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Download,
-  ArrowLeft,
   Users,
-  ImageIcon,
   Loader2,
   Search,
   Activity,
@@ -38,10 +24,21 @@ import {
   X,
 } from 'lucide-react';
 import { AnimalWithOwner, getPhotoUrl } from '@/lib/types';
+import { AsyncPhoto } from '@/components/AsyncPhoto';
+import {
+  apiFetch,
+  apiFetchCached,
+  getApiCacheSnapshot,
+  invalidateApiCache,
+  getApiUrl,
+  getStoredToken,
+  readPersistedApiCache,
+  recalibratePhotosSequentially,
+} from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { useToast } from '@/components/ui/Toast';
 import PhotoLightbox from '@/components/PhotoLightbox';
-import ThemeToggle from '@/components/ThemeToggle';
-import MobileNav from '@/components/MobileNav';
+import { AppShell } from '@/components/AppShell';
 
 interface AdminUserRow {
   id: number;
@@ -68,20 +65,31 @@ function SkeletonCard() {
 }
 
 export default function AdminPage() {
+  const cachedAnimals = getApiCacheSnapshot<AnimalWithOwner[]>('/api/admin/animals');
+  const cachedUsers = getApiCacheSnapshot<AdminUserRow[]>('/api/admin/users');
+
   const [activeTab, setActiveTab] = useState<'dataset' | 'users'>('dataset');
-  const [animals, setAnimals] = useState<AnimalWithOwner[]>([]);
-  const [users, setUsers] = useState<AdminUserRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [animals, setAnimals] = useState<AnimalWithOwner[]>(() =>
+    Array.isArray(cachedAnimals) ? cachedAnimals : []
+  );
+  const [users, setUsers] = useState<AdminUserRow[]>(() =>
+    Array.isArray(cachedUsers) ? cachedUsers : []
+  );
+  const [loading, setLoading] = useState<boolean>(
+    () => !Array.isArray(cachedAnimals) || !Array.isArray(cachedUsers)
+  );
   const [downloading, setDownloading] = useState(false);
   const [recalibrating, setRecalibrating] = useState(false);
+  const [recalibratingProgress, setRecalibratingProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
 
-  // Filtros de dataset e usuários
   const [query, setQuery] = useState('');
   const [onlyWithPhotos, setOnlyWithPhotos] = useState(false);
   const [userQuery, setUserQuery] = useState('');
   const [previewAnimal, setPreviewAnimal] = useState<AnimalWithOwner | null>(null);
 
-  // Estado de ação nos usuários
   const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newUserName, setNewUserName] = useState('');
@@ -92,28 +100,58 @@ export default function AdminPage() {
 
   const { toast, confirm } = useToast();
   const router = useRouter();
+  const { user, isAdmin, loading: authLoading } = useAuth();
+
+  const loadData = useCallback(
+    async (forceRefresh = false) => {
+      if (forceRefresh) {
+        invalidateApiCache('/api/admin');
+      }
+      try {
+        const ttl = forceRefresh ? 0 : 15_000;
+        const [animalsData, usersData] = await Promise.all([
+          apiFetchCached<AnimalWithOwner[]>('/api/admin/animals', ttl),
+          apiFetchCached<AdminUserRow[]>('/api/admin/users', ttl),
+        ]);
+        if (Array.isArray(animalsData)) setAnimals(animalsData);
+        if (Array.isArray(usersData)) setUsers(usersData);
+      } catch (err: any) {
+        if (err?.message?.includes('403') || err?.message?.includes('Acesso negado')) {
+          router.push('/dashboard');
+        } else if (err?.message?.includes('401') || err?.message?.includes('Token')) {
+          router.push('/login');
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [router]
+  );
 
   useEffect(() => {
-    Promise.all([fetch('/api/admin/animals'), fetch('/api/admin/users')])
-      .then(async ([animalsRes, usersRes]) => {
-        if (animalsRes.status === 401 || usersRes.status === 401) {
-          router.push('/login');
-          return;
+    if (!authLoading) {
+      if (!user) {
+        router.push('/login');
+      } else if (!isAdmin) {
+        router.push('/dashboard');
+      } else {
+        if (!Array.isArray(cachedAnimals)) {
+          const persistedAnimals = readPersistedApiCache<AnimalWithOwner[]>('/api/admin/animals');
+          if (Array.isArray(persistedAnimals)) {
+            setAnimals(persistedAnimals);
+            setLoading(false);
+          }
         }
-        if (animalsRes.status === 403 || usersRes.status === 403) {
-          router.push('/dashboard');
-          return;
+        if (!Array.isArray(cachedUsers)) {
+          const persistedUsers = readPersistedApiCache<AdminUserRow[]>('/api/admin/users');
+          if (Array.isArray(persistedUsers)) {
+            setUsers(persistedUsers);
+          }
         }
-        const [animalsData, usersData] = await Promise.all([
-          animalsRes.json(),
-          usersRes.json(),
-        ]);
-        if (Array.isArray(animalsData)) setAnimals(animalsData as AnimalWithOwner[]);
-        if (Array.isArray(usersData)) setUsers(usersData as AdminUserRow[]);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [router]);
+        loadData();
+      }
+    }
+  }, [authLoading, user, isAdmin, router, loadData]);
 
   const stats = useMemo(() => {
     const totalAnimals = animals.length;
@@ -164,7 +202,12 @@ export default function AdminPage() {
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      const res = await fetch('/api/export');
+      const baseUrl = getApiUrl();
+      const token = getStoredToken();
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`${baseUrl}/api/admin/export`, { headers });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || 'Falha ao exportar');
@@ -174,81 +217,62 @@ export default function AdminPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `cattle-ics-dataset-${new Date().toISOString().slice(0, 10)}.zip`;
+      a.download = `cattle-capture-dataset-${new Date().toISOString().slice(0, 10)}.zip`;
       a.click();
       URL.revokeObjectURL(url);
       toast('Download do dataset ZIP iniciado com sucesso!', 'success');
-    } catch (err) {
-      toast(
-        err instanceof Error ? err.message : 'Erro ao gerar o dataset.',
-        'error'
-      );
+    } catch (err: any) {
+      toast(err?.message || 'Erro ao gerar o dataset.', 'error');
     } finally {
       setDownloading(false);
     }
   };
 
-  /**
-   * Executa a recalibração de todos os scores de fotos no banco de dados
-   * via POST /api/admin/recalibrate com modelo biométrico ajustado.
-   */
   const handleRecalibrateScores = async () => {
     if (recalibrating) return;
+    const photoIds = animals.flatMap((a) => (a.photos ?? []).map((p) => p.id));
+    if (photoIds.length === 0) {
+      toast('Nenhuma foto encontrada para recalibração.', 'info');
+      return;
+    }
+
     const ok = await confirm({
-      title: 'Recalcular Confiança do Dataset',
-      message:
-        'Deseja recalcular a confiança de todas as fotos do banco de dados com a IA calibrada? Isso atualizará permanentemente os registros.',
-      confirmText: 'Recalcular Todas',
+      title: 'Reavaliar enquadramento',
+      message: `Deseja recalcular a qualidade do enquadramento de ${photoIds.length} foto(s)?`,
+      confirmText: 'Reavaliar',
       variant: 'primary',
     });
     if (!ok) return;
 
     setRecalibrating(true);
+    setRecalibratingProgress({ current: 0, total: photoIds.length });
     try {
-      const res = await fetch('/api/admin/recalibrate', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Falha ao recalcular confiança');
-      }
-
+      const summary = await recalibratePhotosSequentially(photoIds, ({ current, total }) => {
+        setRecalibratingProgress({ current, total });
+      });
       toast(
-        data.message ||
-          `${data.updatedCount ?? 0} fotos recalculadas com sucesso!`,
-        'success'
+        `${summary.updatedCount} de ${summary.totalCount} fotos recalculadas sequencialmente!`,
+        summary.failedCount > 0 ? 'info' : 'success'
       );
-
-      // Recarrega os dados atualizados
-      const freshRes = await fetch('/api/admin/animals');
-      if (freshRes.ok) {
-        const freshAnimals = await freshRes.json();
-        if (Array.isArray(freshAnimals)) setAnimals(freshAnimals);
-      }
-    } catch (err) {
-      toast(
-        err instanceof Error ? err.message : 'Erro ao recalcular confiança da IA',
-        'error'
-      );
+      invalidateApiCache('/api/animals');
+      invalidateApiCache('/api/admin/animals');
+      await loadData(true);
+    } catch (err: any) {
+      toast(err?.message || 'Erro ao recalcular confiança da IA', 'error');
     } finally {
       setRecalibrating(false);
+      setRecalibratingProgress(null);
     }
   };
 
-  /**
-   * Alterna o papel de um usuário entre "USER" e "ADMIN" com 1 clique.
-   */
   const handleToggleRole = async (target: AdminUserRow) => {
     const nextRole = target.role === 'ADMIN' ? 'USER' : 'ADMIN';
     setUpdatingUserId(target.id);
     try {
-      const res = await fetch(`/api/admin/users/${target.id}`, {
+      await apiFetch(`/api/admin/users/${target.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: nextRole }),
+        body: { role: nextRole },
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Erro ao alterar permissão');
-      }
 
       setUsers((prev) =>
         prev.map((u) => (u.id === target.id ? { ...u, role: nextRole } : u))
@@ -259,19 +283,13 @@ export default function AdminPage() {
           : `${target.name} alterado para Operador comum.`,
         'success'
       );
-    } catch (err) {
-      toast(
-        err instanceof Error ? err.message : 'Falha ao atualizar cargo',
-        'error'
-      );
+    } catch (err: any) {
+      toast(err?.message || 'Falha ao atualizar cargo', 'error');
     } finally {
       setUpdatingUserId(null);
     }
   };
 
-  /**
-   * Exclui um usuário após confirmação.
-   */
   const handleDeleteUser = async (target: AdminUserRow) => {
     const ok = await confirm({
       title: 'Excluir Usuário',
@@ -283,46 +301,29 @@ export default function AdminPage() {
 
     setUpdatingUserId(target.id);
     try {
-      const res = await fetch(`/api/admin/users/${target.id}`, {
-        method: 'DELETE',
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Erro ao excluir usuário');
-      }
+      await apiFetch(`/api/admin/users/${target.id}`, { method: 'DELETE' });
       setUsers((prev) => prev.filter((u) => u.id !== target.id));
       toast('Usuário removido com sucesso.', 'success');
-    } catch (err) {
-      toast(
-        err instanceof Error ? err.message : 'Falha ao remover usuário',
-        'error'
-      );
+    } catch (err: any) {
+      toast(err?.message || 'Falha ao remover usuário', 'error');
     } finally {
       setUpdatingUserId(null);
     }
   };
 
-  /**
-   * Cria um novo usuário/admin ou promove um e-mail já cadastrado.
-   */
   const handleCreateOrPromoteUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingUser(true);
     try {
-      const res = await fetch('/api/admin/users', {
+      const data = await apiFetch<any>('/api/admin/users', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: {
           name: newUserName,
           email: newUserEmail,
           password: newUserPassword,
           role: newUserRole,
-        }),
+        },
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Erro ao salvar usuário');
-      }
 
       setUsers((prev) => {
         const exists = prev.some((u) => u.id === data.id);
@@ -337,7 +338,7 @@ export default function AdminPage() {
       });
 
       toast(
-        data.updatedExisting
+        data?.updatedExisting
           ? `Usuário existente atualizado para ${data.role}!`
           : `Novo ${data.role === 'ADMIN' ? 'Administrador' : 'Operador'} cadastrado!`,
         'success'
@@ -347,621 +348,411 @@ export default function AdminPage() {
       setNewUserEmail('');
       setNewUserPassword('');
       setNewUserRole('ADMIN');
-    } catch (err) {
-      toast(
-        err instanceof Error ? err.message : 'Erro ao criar/promover usuário',
-        'error'
-      );
+    } catch (err: any) {
+      toast(err?.message || 'Erro ao criar/promover usuário', 'error');
     } finally {
       setSavingUser(false);
     }
   };
 
   return (
-    <div className="min-h-[100dvh] bg-theme-bg text-theme-primary flex flex-col pb-20 sm:pb-8">
-      {/* Header Compacto */}
-      <header className="glass-header sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-12 sm:h-14 flex items-center justify-between gap-1.5 sm:gap-2">
-          <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
-            <Link
-              href="/dashboard"
-              className="p-2 rounded-md min-w-[38px] min-h-[38px] flex items-center justify-center text-theme-secondary hover:bg-theme-surface-2 transition active:scale-95 touch-manipulation shrink-0"
-              aria-label="Voltar ao Dashboard"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 sm:gap-2">
-                <h1 className="text-xs sm:text-sm font-bold text-theme-primary truncate max-w-[125px] xs:max-w-[200px] sm:max-w-none">
-                  Central Administrativa
-                </h1>
-                <span className="inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
-                  <ShieldCheck className="w-3 h-3" />
-                  ADMIN
-                </span>
-              </div>
-              <p className="text-[10px] sm:text-[11px] text-theme-muted truncate hidden sm:block">
-                Curadoria global do dataset para IA de ICS e gestão de permissões
+    <AppShell
+      showBack
+      backHref="/dashboard"
+      title="Central de Gestão"
+      subtitle="Rebanho completo, capturas e usuários"
+      maxWidth="xl"
+    >
+      <div className="space-y-5">
+        {/* Hero Board da Gestão */}
+        <section className="card p-5 sm:p-6 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-lg sm:text-xl font-bold text-theme-primary tracking-tight">
+                Painel consolidado do rebanho
+              </h1>
+              <p className="text-xs sm:text-sm text-theme-secondary mt-0.5">
+                Acompanhe indicadores gerais, avalie o lote e exporte imagens e registros em ZIP.
               </p>
             </div>
-          </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <ThemeToggle />
             <button
               onClick={handleDownload}
               disabled={downloading || stats.totalPhotos === 0}
-              className="btn-primary py-1.5 px-3 min-h-[38px] text-xs shrink-0 flex items-center gap-1.5 active:scale-95 touch-manipulation"
-              title="Exportar dataset completo em ZIP"
-              aria-label="Exportar dataset ZIP"
+              className="btn-primary text-xs sm:text-sm shrink-0"
+              title="Baixar arquivo ZIP com fotos e metadados do banco"
             >
               {downloading ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-4 h-4" />
               )}
-              <span className="hidden sm:inline">
-                {downloading ? 'Empacotando…' : 'Exportar ZIP'}
-              </span>
+              <span>{downloading ? 'Gerando pacote…' : 'Baixar Dataset (ZIP)'}</span>
             </button>
           </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-[var(--border-subtle)] rounded-[12px] border border-theme bg-theme-surface-2 overflow-hidden">
+            <div className="p-3.5 sm:p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-theme-muted">Rebanho</p>
+              <p className="text-xl sm:text-2xl font-bold text-theme-primary mt-1 tabular-nums">
+                {stats.totalAnimals}
+              </p>
+              <p className="text-[11px] text-theme-secondary mt-0.5">
+                Animais catalogados
+              </p>
+            </div>
+
+            <div className="p-3.5 sm:p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-brand">
+                Capturas
+              </p>
+              <p className="text-xl sm:text-2xl font-bold text-brand mt-1 tabular-nums">
+                {stats.totalPhotos}
+              </p>
+              <p className="text-[11px] text-theme-secondary mt-0.5">
+                Fotos registradas
+              </p>
+            </div>
+
+            <div className="p-3.5 sm:p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-theme-muted">Operadores</p>
+              <p className="text-xl sm:text-2xl font-bold text-theme-primary mt-1 tabular-nums">
+                {stats.totalUsers}
+              </p>
+              <p className="text-[11px] text-theme-secondary mt-0.5">
+                {stats.totalAdmins} {stats.totalAdmins === 1 ? 'administrador' : 'administradores'}
+              </p>
+            </div>
+
+            <div className="p-3.5 sm:p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-theme-muted">Enquadramento</p>
+              <p className="text-xl sm:text-2xl font-bold text-theme-primary mt-1 tabular-nums">
+                {stats.avgScore !== null ? `${stats.avgScore}%` : 'Sem dados'}
+              </p>
+              <p className="text-[11px] text-theme-secondary mt-0.5">
+                Qualidade média das fotos
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <div className="flex border-b border-theme gap-2">
+          <button
+            onClick={() => setActiveTab('dataset')}
+            className={`pb-3 px-3 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 ${
+              activeTab === 'dataset'
+                ? 'border-[var(--color-brand)] text-brand'
+                : 'border-transparent text-theme-secondary hover:text-theme-primary'
+            }`}
+          >
+            <Database className="w-4 h-4" />
+            <span>Rebanho e Capturas ({stats.totalAnimals})</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`pb-3 px-3 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 ${
+              activeTab === 'users'
+                ? 'border-[var(--color-brand)] text-brand'
+                : 'border-transparent text-theme-secondary hover:text-theme-primary'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>Usuários e Permissões ({stats.totalUsers})</span>
+          </button>
         </div>
-      </header>
 
-      <main className="flex-1 max-w-6xl mx-auto w-full px-3 sm:px-6 py-5">
-        {loading ? (
-          <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-24 skeleton rounded-lg" />
-              ))}
-            </div>
-            <div className="flex flex-col gap-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <SkeletonCard key={i} />
-              ))}
-            </div>
-          </>
-        ) : (
-          <>
-            {/* KPIs Executivos */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
-              <div className="card p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-theme-muted">
-                  Total Animais
-                </p>
-                <p className="text-2xl font-extrabold text-theme-primary mt-1">
-                  {stats.totalAnimals}
-                </p>
-                <p className="text-[11px] text-theme-secondary mt-0.5">
-                  Registros globais
-                </p>
+        {activeTab === 'dataset' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Filtrar por brinco, nome, raça ou operador…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="field-input pl-10 text-xs sm:text-sm"
+                />
               </div>
 
-              <div className="card p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                  Total Capturas
-                </p>
-                <p className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
-                  {stats.totalPhotos}
-                </p>
-                <p className="text-[11px] text-theme-secondary mt-0.5">
-                  Prontas para exportação
-                </p>
-              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 text-xs font-semibold text-theme-secondary select-none cursor-pointer bg-theme-surface border border-theme px-3 py-2 rounded-[10px]">
+                  <input
+                    type="checkbox"
+                    checked={onlyWithPhotos}
+                    onChange={(e) => setOnlyWithPhotos(e.target.checked)}
+                    className="accent-[var(--color-brand)] w-3.5 h-3.5"
+                  />
+                  <span>Apenas com fotos</span>
+                </label>
 
-              <div className="card p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-theme-muted">
-                  Confiança Média IA
-                </p>
-                <p className="text-2xl font-extrabold text-theme-primary mt-1">
-                  {stats.avgScore !== null ? `${stats.avgScore}%` : '—'}
-                </p>
-                <p className="text-[11px] text-theme-secondary mt-0.5">
-                  Confiança Biométrica
-                </p>
-              </div>
-
-              <div className="card p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
-                  Usuários / Admins
-                </p>
-                <p className="text-2xl font-extrabold text-theme-primary mt-1">
-                  {stats.totalUsers}{' '}
-                  <span className="text-xs font-bold text-amber-600 dark:text-amber-400">
-                    ({stats.totalAdmins} admin{stats.totalAdmins === 1 ? '' : 's'})
-                  </span>
-                </p>
-                <p className="text-[11px] text-theme-secondary mt-0.5">
-                  Contas cadastradas
-                </p>
-              </div>
-            </div>
-
-            {/* Seletor de Abas */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-              <div className="grid grid-cols-2 p-1 rounded-2xl bg-theme-surface-2 border border-theme w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('dataset')}
-                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
-                    activeTab === 'dataset'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-theme-secondary hover:text-theme-primary'
-                  }`}
-                >
-                  <Database className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Rebanho ({animals.length})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('users')}
-                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
-                    activeTab === 'users'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-theme-secondary hover:text-theme-primary'
-                  }`}
-                >
-                  <Users className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Usuários ({users.length})</span>
-                </button>
-              </div>
-
-              {activeTab === 'dataset' && (
-                <button
-                  type="button"
-                  onClick={handleRecalibrateScores}
-                  disabled={recalibrating || stats.totalPhotos === 0}
-                  className="btn-secondary py-2 px-3.5 text-xs sm:text-sm flex items-center justify-center gap-1.5 border-emerald-500/30 hover:border-emerald-500/50 w-full sm:w-auto"
-                  title="Recalcular confiança da IA de todas as fotos no banco de dados"
-                >
-                  {recalibrating ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
-                  ) : (
-                    <Activity className="w-3.5 h-3.5 text-emerald-500" />
-                  )}
-                  <span>
-                    {recalibrating ? 'Recalibrando IA…' : 'Recalcular Confiança IA'}
-                  </span>
-                </button>
-              )}
-
-              {activeTab === 'users' && (
-                <button
-                  type="button"
-                  onClick={() => setShowAddUserModal(true)}
-                  className="btn-primary py-2.5 px-4 text-xs sm:text-sm justify-center w-full sm:w-auto"
-                >
-                  <UserPlus className="w-4 h-4" />
-                  <span>Adicionar / Promover Admin</span>
-                </button>
-              )}
-            </div>
-
-            {/* ABA 1: REBANHO & DATASET */}
-            {activeTab === 'dataset' && (
-              <>
-                <div className="flex flex-col sm:flex-row gap-3 mb-6">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-muted pointer-events-none" />
-                    <input
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Filtrar por brinco, raça ou nome/e-mail do operador…"
-                      className="field-input pl-10"
-                    />
-                  </div>
-
+                {stats.totalPhotos > 0 && (
                   <button
-                    type="button"
-                    onClick={() => setOnlyWithPhotos((v) => !v)}
-                    className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition shrink-0 ${
-                      onlyWithPhotos
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'bg-theme-surface text-theme-secondary border-theme hover:bg-theme-surface-2'
-                    }`}
+                    onClick={handleRecalibrateScores}
+                    disabled={recalibrating}
+                    className="btn-secondary !py-2 !px-3 !min-h-[38px] text-xs"
+                    title="Reavaliar o enquadramento das fotos"
                   >
-                    Apenas com fotos (
-                    {animals.filter((a) => (a.photos?.length ?? 0) > 0).length})
+                    {recalibrating ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-brand" />
+                    ) : (
+                      <Activity className="w-3.5 h-3.5 text-brand" />
+                    )}
+                    <span className="tabular-nums">
+                      {recalibrating
+                        ? recalibratingProgress
+                          ? `${recalibratingProgress.current}/${recalibratingProgress.total}…`
+                          : 'Reavaliando…'
+                        : 'Reavaliar fotos'}
+                    </span>
                   </button>
-                </div>
-
-                {filteredAnimals.length === 0 ? (
-                  <div className="card py-16 px-4 flex flex-col items-center justify-center gap-3 text-center">
-                    <Database className="w-10 h-10 text-theme-muted opacity-50" />
-                    <p className="font-bold text-theme-primary">
-                      Nenhum animal encontrado
-                    </p>
-                    <p className="text-xs text-theme-secondary">
-                      Ajuste os filtros ou cadastre novos animais no painel.
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    {/* Mobile Cards */}
-                    <div className="sm:hidden flex flex-col gap-3">
-                      {filteredAnimals.map((animal) => {
-                        const lastPhoto = animal.photos?.[0];
-                        const photoUrl = lastPhoto
-                          ? getPhotoUrl(lastPhoto.id)
-                          : null;
-                        const photoCount = animal.photos?.length ?? 0;
-
-                        return (
-                          <div
-                            key={animal.id}
-                            className="card p-4 flex gap-3.5 items-center"
-                          >
-                            <button
-                              type="button"
-                              onClick={() =>
-                                photoCount > 0 && setPreviewAnimal(animal)
-                              }
-                              className="w-16 h-16 rounded-xl bg-theme-surface-2 overflow-hidden shrink-0 flex items-center justify-center border border-theme relative"
-                            >
-                              {photoUrl ? (
-                                <img
-                                  src={photoUrl}
-                                  alt={animal.tag}
-                                  loading="lazy"
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <ImageIcon className="w-6 h-6 text-theme-muted" />
-                              )}
-                            </button>
-
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-2">
-                                <Link
-                                  href={`/animal/${animal.id}`}
-                                  className="font-mono-tag text-xs font-bold px-2 py-0.5 rounded bg-slate-900 dark:bg-emerald-950 text-white dark:text-emerald-300 border border-transparent dark:border-emerald-700/50"
-                                >
-                                  {animal.tag}
-                                </Link>
-                                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                                  {photoCount}{' '}
-                                  {photoCount === 1 ? 'foto' : 'fotos'}
-                                </span>
-                              </div>
-                              <p className="text-sm font-bold text-theme-primary mt-1 truncate">
-                                {animal.name || animal.breed} · {animal.sex} (
-                                {animal.weight}kg)
-                              </p>
-                              <p className="text-xs text-theme-secondary truncate">
-                                Operador:{' '}
-                                {animal.owner?.name || animal.owner?.email}
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Desktop Table */}
-                    <div className="hidden sm:block card overflow-hidden">
-                      <table className="w-full text-left text-sm text-theme-secondary">
-                        <thead className="bg-theme-surface-2 border-b border-theme text-xs uppercase tracking-wider text-theme-muted font-bold">
-                          <tr>
-                            <th className="px-5 py-3.5">Prévia / Brinco</th>
-                            <th className="px-5 py-3.5">Zootecnia</th>
-                            <th className="px-5 py-3.5">Operador</th>
-                            <th className="px-5 py-3.5">Confiança IA</th>
-                            <th className="px-5 py-3.5">Capturas</th>
-                            <th className="px-5 py-3.5 text-right">Ações</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y border-theme">
-                          {filteredAnimals.map((a) => {
-                            const lastPhoto = a.photos?.[0];
-                            const photoUrl = lastPhoto
-                              ? getPhotoUrl(lastPhoto.id)
-                              : null;
-                            const photoCount = a.photos?.length ?? 0;
-                            const score =
-                              lastPhoto && typeof lastPhoto.score === 'number'
-                                ? Math.round(lastPhoto.score)
-                                : null;
-
-                            return (
-                              <tr
-                                key={a.id}
-                                className="hover:bg-theme-surface-2/60 transition-colors"
-                              >
-                                <td className="px-5 py-3.5">
-                                  <div className="flex items-center gap-3">
-                                    <button
-                                      type="button"
-                                      disabled={photoCount === 0}
-                                      onClick={() =>
-                                        photoCount > 0 && setPreviewAnimal(a)
-                                      }
-                                      className="w-12 h-12 rounded-xl bg-theme-surface-2 border border-theme overflow-hidden shrink-0 flex items-center justify-center group relative"
-                                      title={
-                                        photoCount > 0
-                                          ? 'Inspecionar fotos'
-                                          : 'Sem fotos'
-                                      }
-                                    >
-                                      {photoUrl ? (
-                                        <img
-                                          src={photoUrl}
-                                          alt={a.tag}
-                                          loading="lazy"
-                                          className="w-full h-full object-cover group-hover:scale-110 transition-transform"
-                                        />
-                                      ) : (
-                                        <ImageIcon className="w-5 h-5 text-theme-muted" />
-                                      )}
-                                    </button>
-                                    <div>
-                                      <Link
-                                        href={`/animal/${a.id}`}
-                                        className="font-mono-tag text-xs font-bold px-2 py-0.5 rounded bg-slate-900 dark:bg-emerald-950 text-white dark:text-emerald-300 hover:bg-emerald-700 transition"
-                                      >
-                                        {a.tag}
-                                      </Link>
-                                      {a.name && (
-                                        <p className="text-xs font-semibold text-theme-primary mt-1">
-                                          {a.name}
-                                        </p>
-                                      )}
-                                    </div>
-                                  </div>
-                                </td>
-
-                                <td className="px-5 py-3.5">
-                                  <p className="font-bold text-theme-primary">
-                                    {a.breed} · {a.sex}
-                                  </p>
-                                  <p className="text-xs text-theme-secondary">
-                                    {a.weight} kg · {a.age} meses
-                                  </p>
-                                </td>
-
-                                <td className="px-5 py-3.5">
-                                  <p className="font-semibold text-theme-primary">
-                                    {a.owner?.name || '—'}
-                                  </p>
-                                  <p className="text-xs text-theme-muted">
-                                    {a.owner?.email}
-                                  </p>
-                                </td>
-
-                                <td className="px-5 py-3.5">
-                                  {score !== null ? (
-                                    <span
-                                      className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-md ${
-                                        score >= 45
-                                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                                          : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                                      }`}
-                                    >
-                                      <Activity className="w-3 h-3" />
-                                      {score}%
-                                    </span>
-                                  ) : (
-                                    <span className="text-xs text-theme-muted">
-                                      —
-                                    </span>
-                                  )}
-                                </td>
-
-                                <td className="px-5 py-3.5">
-                                  <span className="font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full text-xs">
-                                    {photoCount}{' '}
-                                    {photoCount === 1 ? 'foto' : 'fotos'}
-                                  </span>
-                                </td>
-
-                                <td className="px-5 py-3.5 text-right">
-                                  <div className="inline-flex items-center gap-1.5">
-                                    {photoCount > 0 && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setPreviewAnimal(a)}
-                                        className="p-2 rounded-lg text-theme-secondary hover:text-emerald-600 hover:bg-emerald-500/10"
-                                        title="Inspecionar galeria"
-                                      >
-                                        <Eye className="w-4 h-4" />
-                                      </button>
-                                    )}
-                                    <Link
-                                      href={`/camera?animalId=${a.id}&animalName=${encodeURIComponent(
-                                        a.name || a.tag
-                                      )}`}
-                                      className="p-2 rounded-lg text-theme-secondary hover:text-emerald-600 hover:bg-emerald-500/10"
-                                      title="Capturar foto"
-                                    >
-                                      <Camera className="w-4 h-4" />
-                                    </Link>
-                                    <Link
-                                      href={`/animal/${a.id}`}
-                                      className="p-2 rounded-lg text-theme-secondary hover:text-theme-primary hover:bg-theme-surface-2"
-                                      title="Abrir ficha completa"
-                                    >
-                                      <ExternalLink className="w-4 h-4" />
-                                    </Link>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
                 )}
-              </>
-            )}
+              </div>
+            </div>
 
-            {/* ABA 2: USUÁRIOS & ADMINS */}
-            {activeTab === 'users' && (
-              <>
-                <div className="flex flex-col sm:flex-row gap-3 mb-6">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-muted pointer-events-none" />
-                    <input
-                      value={userQuery}
-                      onChange={(e) => setUserQuery(e.target.value)}
-                      placeholder="Buscar usuário por nome, e-mail ou nível de acesso…"
-                      className="field-input pl-10"
-                    />
-                  </div>
-                </div>
+            {loading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <SkeletonCard key={i} />
+                ))}
+              </div>
+            ) : filteredAnimals.length === 0 ? (
+              <div className="card py-12 px-4 text-center text-xs text-theme-muted">
+                Nenhum animal encontrado para o filtro aplicado.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {filteredAnimals.map((animal) => {
+                  const photos = animal.photos ?? [];
+                  const photoCount = photos.length;
+                  const firstPhoto = photos[0];
+                  const photoUrl = firstPhoto ? getPhotoUrl(firstPhoto.id, 240) : null;
 
-                <div className="grid grid-cols-1 gap-3">
-                  {filteredUsers.map((u) => {
-                    const isSelf = Boolean(u.isSelf);
-                    const isAdmin = u.role === 'ADMIN';
-                    const isBusy = updatingUserId === u.id;
+                  return (
+                    <div
+                      key={animal.id}
+                      className="card p-3.5 flex gap-3.5 hover:border-[var(--color-brand)]/45 transition-all items-center"
+                    >
+                      <div className="w-20 h-20 rounded-[10px] overflow-hidden bg-theme-surface-2 border border-theme shrink-0 relative flex items-center justify-center">
+                        {photoUrl ? (
+                          <AsyncPhoto
+                            src={photoUrl}
+                            alt={animal.tag}
+                            compact
+                            fallbackIcon={<Camera className="w-6 h-6 text-theme-muted opacity-40" />}
+                          />
+                        ) : (
+                          <Camera className="w-6 h-6 text-theme-muted opacity-40" />
+                        )}
+                        {photoCount > 1 && (
+                          <span className="absolute bottom-1 right-1 bg-black/75 text-[9px] font-bold text-white px-1 py-0.5 rounded">
+                            +{photoCount - 1}
+                          </span>
+                        )}
+                      </div>
 
-                    return (
-                      <div
-                        key={u.id}
-                        className="card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                      >
-                        <div className="flex items-start sm:items-center gap-3.5 min-w-0">
-                          <div
-                            className={`w-11 h-11 rounded-2xl flex items-center justify-center font-extrabold text-sm shrink-0 ${
-                              isAdmin
-                                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
-                                : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
-                            }`}
-                          >
-                            {u.name.slice(0, 2).toUpperCase()}
-                          </div>
-
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="font-extrabold text-theme-primary truncate">
-                                {u.name}
-                              </p>
-                              <span
-                                className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                  isAdmin
-                                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
-                                    : 'bg-theme-surface-2 text-theme-secondary border border-theme'
-                                }`}
-                              >
-                                {isAdmin ? (
-                                  <>
-                                    <ShieldCheck className="w-3 h-3" />
-                                    ADMIN
-                                  </>
-                                ) : (
-                                  'OPERADOR COMUM'
-                                )}
-                              </span>
-                              {isSelf && (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                                  Você
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-theme-secondary truncate mt-0.5">
-                              {u.email}
-                            </p>
-                            <p className="text-[11px] text-theme-muted mt-1">
-                              {u.animalsCount} animais cadastrados ·{' '}
-                              {u.photosCount} fotos enviadas
-                            </p>
-                          </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="font-mono-tag text-[11px] font-semibold px-2 py-0.5 rounded-[7px] bg-theme-surface-2 border border-theme text-theme-primary">
+                            {animal.tag}
+                          </span>
+                          <span className="text-xs sm:text-sm font-bold text-theme-primary truncate">
+                            {animal.name || animal.breed}
+                          </span>
+                          {firstPhoto && typeof firstPhoto.score === 'number' && (
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-[7px] bg-brand-soft text-brand tabular-nums">
+                              Enquadr. {Math.round(firstPhoto.score)}%
+                            </span>
+                          )}
                         </div>
 
-                        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                          <button
-                            type="button"
-                            disabled={isBusy || isSelf}
-                            onClick={() => handleToggleRole(u)}
-                            className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 disabled:opacity-45 ${
-                              isAdmin
-                                ? 'bg-theme-surface-2 text-theme-secondary border-theme hover:bg-amber-500/10 hover:text-amber-600'
-                                : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/25'
-                            }`}
-                            title={
-                              isSelf
-                                ? 'Você não pode alterar seu próprio cargo'
-                                : isAdmin
-                                ? 'Rebaixar para usuário comum'
-                                : 'Promover este usuário a Administrador'
-                            }
-                          >
-                            {isBusy ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : isAdmin ? (
-                              <ShieldAlert className="w-3.5 h-3.5" />
-                            ) : (
-                              <ShieldCheck className="w-3.5 h-3.5" />
-                            )}
-                            <span>
-                              {isAdmin
-                                ? 'Tornar Usuário Comum'
-                                : 'Tornar Admin'}
-                            </span>
-                          </button>
+                        <p className="text-[11px] text-theme-secondary truncate">
+                          {animal.breed}, {animal.sex}, {animal.weight} kg, {animal.age} meses
+                        </p>
 
-                          {!isSelf && (
+                        <p className="text-[10px] text-theme-muted truncate mt-0.5">
+                          Operador: <strong className="text-theme-secondary">{animal.owner?.name}</strong> ({animal.owner?.email})
+                        </p>
+
+                        <div className="flex items-center gap-3 mt-2">
+                          <Link
+                            href={`/animal/${animal.id}`}
+                            className="text-[11px] font-bold text-brand hover:underline inline-flex items-center gap-1"
+                          >
+                            Ver ficha <ExternalLink className="w-3 h-3" />
+                          </Link>
+                          {photoCount > 0 && (
                             <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => handleDeleteUser(u)}
-                              className="p-2 rounded-xl text-rose-500 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition"
-                              title="Excluir usuário"
+                              onClick={() => setPreviewAnimal(animal)}
+                              className="text-[11px] font-bold text-theme-secondary hover:text-theme-primary inline-flex items-center gap-1"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Eye className="w-3 h-3" /> Ver fotos ({photoCount})
                             </button>
                           )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </>
-        )}
-      </main>
-
-      {/* Modal para criar novo usuário/admin ou promover e-mail */}
-      {showAddUserModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setShowAddUserModal(false)}
-        >
-          <div
-            className="card max-w-md w-full p-6 animate-fade-up"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-base font-extrabold text-theme-primary">
-                  Adicionar ou Promover Usuário
-                </h2>
-                <p className="text-xs text-theme-secondary mt-0.5">
-                  Cadastre uma nova conta ou informe um e-mail existente para
-                  promovê-lo a Admin.
-                </p>
+                    </div>
+                  );
+                })}
               </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'users' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-theme-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Buscar usuário por nome, e-mail ou cargo…"
+                  value={userQuery}
+                  onChange={(e) => setUserQuery(e.target.value)}
+                  className="field-input pl-10 text-xs sm:text-sm"
+                />
+              </div>
+
               <button
-                type="button"
-                onClick={() => setShowAddUserModal(false)}
-                className="p-1.5 rounded-lg text-theme-muted hover:text-theme-primary"
+                onClick={() => setShowAddUserModal(true)}
+                className="btn-primary py-2 px-3 text-xs flex items-center justify-center gap-1.5 shrink-0"
               >
-                <X className="w-5 h-5" />
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Adicionar / Promover Usuário</span>
               </button>
             </div>
 
-            <form onSubmit={handleCreateOrPromoteUser} className="space-y-4">
+            {loading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <SkeletonCard key={i} />
+                ))}
+              </div>
+            ) : filteredUsers.length === 0 ? (
+              <div className="card py-12 px-4 text-center text-xs text-theme-muted">
+                Nenhum usuário encontrado.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {filteredUsers.map((target) => {
+                  const isCurrentAdmin = target.role === 'ADMIN';
+                  const isUpdating = updatingUserId === target.id;
+
+                  return (
+                    <div
+                      key={target.id}
+                      className="card p-4 flex flex-col justify-between hover:border-[var(--color-brand)]/45 transition gap-3"
+                    >
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h3 className="text-sm font-bold text-theme-primary truncate flex items-center gap-1.5">
+                              {target.name}
+                              {target.isSelf && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-brand-soft text-brand">
+                                  Você
+                                </span>
+                              )}
+                            </h3>
+                            <p className="text-xs text-theme-secondary truncate">{target.email}</p>
+                          </div>
+
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 shrink-0 ${
+                              isCurrentAdmin
+                                ? 'bg-[#B45309]/12 text-[#B45309] dark:text-[#FBBF24] border border-[#B45309]/25'
+                                : 'bg-theme-surface-2 text-theme-secondary border border-theme'
+                            }`}
+                          >
+                            {isCurrentAdmin ? (
+                              <ShieldCheck className="w-3 h-3" />
+                            ) : (
+                              <Users className="w-3 h-3" />
+                            )}
+                            {target.role}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-3 text-xs text-theme-muted mt-2">
+                          <span>{target.animalsCount} animais, {target.photosCount} fotos enviadas</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-theme">
+                        {!target.isSelf && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleRole(target)}
+                              disabled={isUpdating}
+                              className={`py-1.5 px-3 text-xs font-semibold rounded-[8px] border transition flex items-center gap-1.5 ${
+                                isCurrentAdmin
+                                  ? 'bg-theme-surface hover:bg-theme-surface-2 border-theme text-theme-secondary'
+                                  : 'bg-[#B45309]/12 text-[#B45309] dark:text-[#FBBF24] border-[#B45309]/30 hover:bg-[#B45309]/20'
+                              }`}
+                            >
+                              {isUpdating ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : isCurrentAdmin ? (
+                                <ShieldAlert className="w-3 h-3" />
+                              ) : (
+                                <ShieldCheck className="w-3 h-3" />
+                              )}
+                              <span>{isCurrentAdmin ? 'Rebaixar para Usuário' : 'Tornar Admin'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteUser(target)}
+                              disabled={isUpdating}
+                              className="p-1.5 text-theme-muted hover:text-red-500 hover:bg-red-500/10 rounded-[8px] transition"
+                              title="Excluir Usuário"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Modal Adicionar / Promover Usuário */}
+      {showAddUserModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs animate-fade-in">
+          <div className="card w-full max-w-md overflow-hidden animate-scale-in">
+            <div className="px-5 py-4 border-b border-theme flex items-center justify-between">
+              <h3 className="font-extrabold text-base text-theme-primary">
+                Adicionar ou Promover Usuário
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAddUserModal(false)}
+                className="p-1 rounded-md text-theme-muted hover:text-theme-primary"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateOrPromoteUser} className="p-5 flex flex-col gap-4">
+              <p className="text-xs text-theme-secondary">
+                Se o e-mail já existir, o cargo será atualizado. Caso contrário, um novo usuário será criado.
+              </p>
+
               <div>
-                <label className="field-label">Nome completo</label>
+                <label className="field-label">Nome Completo</label>
                 <input
                   type="text"
                   required
                   value={newUserName}
                   onChange={(e) => setNewUserName(e.target.value)}
-                  placeholder="Ex.: Dr. João Zootecnista"
                   className="field-input"
+                  placeholder="Nome do usuário"
                 />
               </div>
 
@@ -972,73 +763,49 @@ export default function AdminPage() {
                   required
                   value={newUserEmail}
                   onChange={(e) => setNewUserEmail(e.target.value)}
-                  placeholder="usuario@fazenda.com"
                   className="field-input"
+                  placeholder="usuario@fazenda.com"
                 />
               </div>
 
               <div>
-                <label className="field-label">
-                  Senha (mín. 6 caracteres para novos usuários)
-                </label>
+                <label className="field-label">Senha (opcional se já cadastrado)</label>
                 <input
                   type="password"
                   value={newUserPassword}
                   onChange={(e) => setNewUserPassword(e.target.value)}
-                  placeholder="Deixe em branco se já tiver conta"
                   className="field-input"
+                  placeholder="Senha para novo cadastro"
                 />
               </div>
 
               <div>
-                <label className="field-label">Nível de permissão</label>
-                <div className="grid grid-cols-2 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setNewUserRole('ADMIN')}
-                    className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 ${
-                      newUserRole === 'ADMIN'
-                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/40'
-                        : 'bg-theme-surface-2 text-theme-secondary border-theme'
-                    }`}
-                  >
-                    <ShieldCheck className="w-4 h-4" />
-                    Administrador
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewUserRole('USER')}
-                    className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 ${
-                      newUserRole === 'USER'
-                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40'
-                        : 'bg-theme-surface-2 text-theme-secondary border-theme'
-                    }`}
-                  >
-                    <Users className="w-4 h-4" />
-                    Operador Comum
-                  </button>
-                </div>
+                <label className="field-label">Perfil de Acesso</label>
+                <select
+                  value={newUserRole}
+                  onChange={(e) => setNewUserRole(e.target.value as 'USER' | 'ADMIN')}
+                  className="field-input"
+                >
+                  <option value="ADMIN">Administrador (Acesso total + Gestão de Usuários)</option>
+                  <option value="USER">Operador de Campo (Apenas seus animais e fotos)</option>
+                </select>
               </div>
 
-              <div className="flex gap-2.5 pt-2">
+              <div className="flex justify-end gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowAddUserModal(false)}
-                  className="btn-secondary flex-1 py-2.5 text-xs"
+                  className="btn-secondary py-2 px-4 text-xs"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={savingUser}
-                  className="btn-primary flex-1 py-2.5 text-xs"
+                  className="btn-primary py-2 px-5 text-xs flex items-center gap-1.5"
                 >
-                  {savingUser ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <UserPlus className="w-4 h-4" />
-                  )}
-                  <span>Salvar Permissão</span>
+                  {savingUser ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  Salvar Usuário
                 </button>
               </div>
             </form>
@@ -1046,16 +813,41 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Lightbox para inspeção rápida das fotos do animal selecionado */}
-      {previewAnimal && (previewAnimal.photos?.length ?? 0) > 0 && (
+      {/* Lightbox para inspeção rápida de fotos do animal na tabela */}
+      {previewAnimal && previewAnimal.photos && previewAnimal.photos.length > 0 && (
         <PhotoLightbox
           photos={previewAnimal.photos}
           initialIndex={0}
           onClose={() => setPreviewAnimal(null)}
+          onPhotoRecalibrated={(photoId, newScore) => {
+            setPreviewAnimal((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    photos: prev.photos.map((p) =>
+                      p.id === photoId ? { ...p, score: newScore } : p
+                    ),
+                  }
+                : prev
+            );
+            setAnimals((prev) =>
+              prev.map((a) =>
+                a.id === previewAnimal.id
+                  ? {
+                      ...a,
+                      photos: a.photos.map((p) =>
+                        p.id === photoId ? { ...p, score: newScore } : p
+                      ),
+                    }
+                  : a
+              )
+            );
+            invalidateApiCache('/api/animals');
+            invalidateApiCache('/api/admin/animals');
+            toast(`Enquadramento atualizado para ${Math.round(newScore)}%.`, 'success');
+          }}
         />
       )}
-
-      <MobileNav isAdmin={true} />
-    </div>
+    </AppShell>
   );
 }

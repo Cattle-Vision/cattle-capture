@@ -1,27 +1,14 @@
 "use client";
 
 /**
- * Ficha Completa do Animal e Galeria (`src/app/animal/[id]/page.tsx`).
- *
- * Funcionalidades:
- * - Visualização dos dados zootécnicos (Brinco, Apelido, Raça, Sexo, Peso, Idade).
- * - **Avaliação de Score IA Antes do Upload**: Ao escolher uma foto da galeria/computador,
- *   comprime a imagem, calcula o Score IA (`evaluatePhotoScoreBeforeUpload`) e apresenta um
- *   modal com o Score IA, diagnóstico e prévia da foto ANTES de enviar ao servidor.
- * - **Edição Inline (Modal)**: Permite atualizar peso, idade, brinco, apelido, raça e sexo (`PATCH /api/animals/[id]`).
- * - **Exclusão do Animal**: Remove o animal e suas fotos com confirmação (`DELETE /api/animals/[id]`).
- * - Suporte completo a Tema Claro/Escuro (`ThemeToggle`).
+ * Prontuário Completo do Animal (`src/app/animal/[id]/page.tsx`).
  */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import {
-  ArrowLeft,
   Camera,
-  Scale,
-  Calendar,
   Tag,
-  Dna,
   Upload,
   Pencil,
   Trash2,
@@ -30,15 +17,41 @@ import {
   Check,
   Activity,
   AlertTriangle,
+  Users,
+  UserPlus,
+  UserMinus,
+  ArrowRightLeft,
+  Copy,
+  ExternalLink,
+  MapPin,
+  Bluetooth,
+  BluetoothConnected,
 } from "lucide-react";
 import PhotoGrid from "@/components/PhotoGrid";
 import PhotoLightbox from "@/components/PhotoLightbox";
-import ThemeToggle from "@/components/ThemeToggle";
+import AppShell from "@/components/AppShell";
+import AnimalHealthTabs, { AnimalTabId } from "@/components/animal/AnimalHealthTabs";
+import FarmLocationFields from "@/components/FarmLocationFields";
+import { buildGoogleMapsUrl, formatCoordinates } from "@/lib/location";
 import { useToast } from "@/components/ui/Toast";
 import { Animal, Photo } from "@/lib/types";
-import { BREEDS, SEX_OPTIONS } from "@/lib/animal";
+import { BREEDS, SEX_OPTIONS, normalizeTag } from "@/lib/animal";
+import { bluetoothRfid, BluetoothStatus } from "@/lib/bluetooth-rfid";
 import { compressImageFile } from "@/lib/image-client";
 import { evaluatePhotoScoreBeforeUpload, VisionScoreResult } from "@/lib/vision-client";
+import {
+  apiFetch,
+  apiFetchCached,
+  apiUpload,
+  getApiCacheSnapshot,
+  invalidateApiCache,
+  readPersistedApiCache,
+  recalibratePhotosSequentially,
+  addCollaborator,
+  removeCollaborator,
+  transferOwnership,
+} from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 interface PendingGalleryPhoto {
   blob: Blob;
@@ -50,98 +63,180 @@ interface PendingGalleryPhoto {
 
 function PageSkeleton() {
   return (
-    <div className="min-h-[100dvh] bg-theme-bg">
-      <div className="h-16 bg-theme-surface border-b border-theme" />
-      <div className="p-4 sm:p-6 max-w-4xl mx-auto flex flex-col gap-5">
-        <div className="h-40 skeleton rounded-2xl" />
-        <div className="h-8 skeleton rounded-lg w-48" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="aspect-[3/4] skeleton rounded-2xl" />
-          ))}
-        </div>
+    <AppShell showBack backHref="/dashboard" title="Carregando ficha…">
+      <div className="space-y-5">
+        <div className="h-44 skeleton rounded-[14px]" />
+        <div className="h-10 skeleton rounded-[10px] w-72" />
+        <div className="h-64 skeleton rounded-[14px]" />
       </div>
-    </div>
-  );
-}
-
-function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl p-3.5 bg-theme-surface-2 border border-theme">
-      <div className="w-9 h-9 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <p className="text-[11px] font-bold uppercase tracking-wider text-theme-muted">{label}</p>
-        <p className="text-sm font-extrabold text-theme-primary truncate">{value}</p>
-      </div>
-    </div>
+    </AppShell>
   );
 }
 
 export default function AnimalProfilePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { user, isAdmin } = useAuth();
   const { toast, confirm } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [animal, setAnimal] = useState<Animal | null>(null);
-  const [loading, setLoading] = useState(true);
+  const detailEndpoint = id ? `/api/animals/${id}` : "";
+  const cachedAnimal = detailEndpoint ? getApiCacheSnapshot<Animal>(detailEndpoint) : null;
+
+  const [animal, setAnimal] = useState<Animal | null>(() => cachedAnimal);
+  const [loading, setLoading] = useState<boolean>(() => !cachedAnimal);
   const [uploading, setUploading] = useState(false);
   const [recalibratingAnimal, setRecalibratingAnimal] = useState(false);
+  const [recalibratingProgress, setRecalibratingProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
-  // Estado de Pré-Avaliação de Score IA antes do upload da galeria
   const [pendingPhoto, setPendingPhoto] = useState<PendingGalleryPhoto | null>(null);
+  const [copiedTag, setCopiedTag] = useState(false);
+  const [activeTab, setActiveTab] = useState<AnimalTabId>("gallery");
 
-  // Estado do Modal de Edição
+  const [bleSupported, setBleSupported] = useState(true);
+  const [bleStatus, setBleStatus] = useState<BluetoothStatus>("disconnected");
+
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviting, setInviting] = useState(false);
+  const [custodyActionLoading, setCustodyActionLoading] = useState(false);
+
+  const isPresetBreed = (b?: string) =>
+    Boolean(b && BREEDS.filter((preset) => preset !== "Outra").includes(b as any));
+
   const [editing, setEditing] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
-  const [editForm, setEditForm] = useState({
-    tag: "",
-    name: "",
-    breed: "Nelore",
-    sex: "Fêmea",
-    weight: "",
-    age: "",
+  const [editForm, setEditForm] = useState(() => {
+    const initialBreed = cachedAnimal?.breed ?? "Nelore";
+    const preset = isPresetBreed(initialBreed);
+    return {
+      tag: cachedAnimal?.tag ?? "",
+      name: cachedAnimal?.name ?? "",
+      breed: preset ? initialBreed : "Outra",
+      customBreed: preset ? "" : initialBreed,
+      sex: cachedAnimal?.sex ?? "Fêmea",
+      weight: cachedAnimal ? String(cachedAnimal.weight) : "",
+      age: cachedAnimal ? String(cachedAnimal.age) : "",
+      length: cachedAnimal?.length != null ? String(cachedAnimal.length) : "",
+      location: cachedAnimal?.location ?? "",
+      locationAddress: cachedAnimal?.locationAddress ?? "",
+      latitude: cachedAnimal?.latitude != null ? String(cachedAnimal.latitude) : "",
+      longitude: cachedAnimal?.longitude != null ? String(cachedAnimal.longitude) : "",
+      observations: cachedAnimal?.observations ?? "",
+    };
   });
 
+  const isAnimalOwner = Boolean(
+    animal &&
+      (animal.isOwner ??
+        animal.custody?.isOwner ??
+        (user ? animal.ownerId === Number(user.id) : false))
+  );
+  const canEditTag = isAnimalOwner || isAdmin;
+
+  const currentEditTagRef = useRef(editForm.tag);
   useEffect(() => {
-    if (!id) return;
-    fetch(`/api/animals/${id}`)
-      .then((res) => {
-        if (res.status === 401) {
-          router.push("/login");
-          return null;
-        }
-        if (!res.ok) return null;
-        return res.json();
-      })
-      .then((data) => {
+    currentEditTagRef.current = editForm.tag;
+  }, [editForm.tag]);
+
+  useEffect(() => {
+    setBleSupported(bluetoothRfid.isSupported());
+    setBleStatus(bluetoothRfid.getStatus());
+
+    const unsubStatus = bluetoothRfid.onStatusChange((status, _name, errMsg) => {
+      setBleStatus(status);
+      if (status === "error" && errMsg) toast(errMsg, "error");
+    });
+
+    const unsubTag = bluetoothRfid.onTag((detail) => {
+      if (!editing || !canEditTag) return;
+      const normalized = normalizeTag(detail.tag);
+      if (currentEditTagRef.current === normalized) return;
+      currentEditTagRef.current = normalized;
+      setEditForm((prev) => ({ ...prev, tag: normalized }));
+      toast(`Código atualizado via Bluetooth: ${normalized}`, "success");
+    });
+
+    return () => {
+      unsubStatus();
+      unsubTag();
+    };
+  }, [canEditTag, editing, toast]);
+
+  const handleToggleEditBle = async () => {
+    if (bleStatus === "connected") {
+      bluetoothRfid.disconnect();
+      return;
+    }
+    const ok = await bluetoothRfid.connect();
+    if (ok) toast("Leitor conectado.", "success");
+  };
+
+  const loadAnimal = useCallback(
+    async (forceRefresh = false) => {
+      if (!id) return;
+      const endpoint = `/api/animals/${id}`;
+      if (forceRefresh) invalidateApiCache(endpoint);
+      try {
+        const data = await apiFetchCached<Animal>(endpoint, forceRefresh ? 0 : 12_000);
         if (data) {
-          setAnimal(data as Animal);
+          setAnimal(data);
+          const preset = isPresetBreed(data.breed);
           setEditForm({
             tag: data.tag,
             name: data.name || "",
-            breed: data.breed,
+            breed: preset ? data.breed : "Outra",
+            customBreed: preset ? "" : data.breed,
             sex: data.sex,
             weight: String(data.weight),
             age: String(data.age),
+            length: data.length != null ? String(data.length) : "",
+            location: data.location || "",
+            locationAddress: data.locationAddress || "",
+            latitude: data.latitude != null ? String(data.latitude) : "",
+            longitude: data.longitude != null ? String(data.longitude) : "",
+            observations: data.observations || "",
           });
         }
+      } catch (err: any) {
+        if (err?.message?.includes("401") || err?.message?.includes("Token")) {
+          router.push("/login");
+        }
+      } finally {
         setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [id, router]);
+      }
+    },
+    [id, router]
+  );
 
-  /* ── Etapa 1: Ao selecionar uma foto da galeria, calcula o Score IA ANTES do upload ── */
+  useEffect(() => {
+    if (id && !cachedAnimal) {
+      const persisted = readPersistedApiCache<Animal>(`/api/animals/${id}`);
+      if (persisted) {
+        setAnimal(persisted);
+        setLoading(false);
+      }
+    }
+    loadAnimal(false);
+  }, [id, cachedAnimal, loadAnimal]);
+
+  const copyTag = () => {
+    if (!animal) return;
+    navigator.clipboard.writeText(animal.tag);
+    setCopiedTag(true);
+    toast("Identificador copiado.", "info");
+    setTimeout(() => setCopiedTag(false), 2000);
+  };
+
   const handleSelectFromGallery = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !animal) return;
 
     try {
-      // Suporta fotos de alta resolução e quaisquer proporções livres (1:1, 16:9, etc.) sem recorte forçado
-      const compressed = await compressImageFile(file, 1600, 0.86);
+      const compressed = await compressImageFile(file, 2048, 0.94);
       setPendingPhoto({
         blob: compressed.blob,
         previewUrl: URL.createObjectURL(compressed.blob),
@@ -152,13 +247,7 @@ export default function AnimalProfilePage() {
 
       const scoreRes = await evaluatePhotoScoreBeforeUpload(compressed.blob);
       setPendingPhoto((prev) =>
-        prev
-          ? {
-              ...prev,
-              evaluating: false,
-              scoreResult: scoreRes,
-            }
-          : null
+        prev ? { ...prev, evaluating: false, scoreResult: scoreRes } : null
       );
     } catch {
       toast("Não foi possível processar a imagem selecionada.", "error");
@@ -167,7 +256,6 @@ export default function AnimalProfilePage() {
     }
   };
 
-  /* ── Etapa 2: Confirma o upload após o usuário ver o Score IA ── */
   const handleConfirmGalleryUpload = async () => {
     if (!pendingPhoto || !animal) return;
     setUploading(true);
@@ -179,148 +267,164 @@ export default function AnimalProfilePage() {
       fd.append("view", "REAR");
       if (pendingPhoto.scoreResult) {
         fd.append("preScore", String(pendingPhoto.scoreResult.score));
+        fd.append(
+          "aiSource",
+          pendingPhoto.scoreResult.localRuntime
+            ? "yolo-onnx-client"
+            : pendingPhoto.scoreResult.source
+        );
       }
 
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: fd,
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (res.ok && data.photo) {
+      const data = await apiUpload<{ photo: Photo }>("/api/photos/upload", fd);
+      if (data?.photo) {
         setAnimal((prev) =>
-          prev
-            ? {
-                ...prev,
-                photos: [data.photo as Photo, ...(prev.photos ?? [])],
-              }
-            : prev
+          prev ? { ...prev, photos: [data.photo as Photo, ...(prev.photos ?? [])] } : prev
         );
         toast(
-          `Foto enviada com Confiança IA de ${Math.round(
+          `Foto salva (enquadramento ${Math.round(
             data.photo.score ?? pendingPhoto.scoreResult?.score ?? 0
-          )}%!`,
+          )}%).`,
           "success"
         );
         setPendingPhoto(null);
-      } else {
-        toast(data.error || "Falha ao enviar foto", "error");
       }
-    } catch {
-      toast("Erro de rede ao enviar a foto.", "error");
+    } catch (err: any) {
+      toast(err?.message || "Falha ao enviar foto.", "error");
     } finally {
       setUploading(false);
     }
   };
 
-  /* ── Excluir Foto ── */
   const handleDeletePhoto = async (photoId: string) => {
     const ok = await confirm({
-      title: "Excluir Foto do Dataset",
-      message: "Deseja realmente apagar esta foto do dataset? Esta ação não pode ser desfeita.",
-      confirmText: "Excluir Foto",
+      title: "Excluir foto",
+      message: "Deseja realmente apagar esta foto? Esta ação não pode ser desfeita.",
+      confirmText: "Excluir",
       variant: "danger",
     });
     if (!ok) return;
-    const res = await fetch(`/api/photos/${photoId}`, { method: "DELETE" });
-    if (res.ok) {
+
+    try {
+      await apiFetch(`/api/photos/${photoId}`, { method: "DELETE" });
       setAnimal((prev) =>
         prev ? { ...prev, photos: prev.photos.filter((p: Photo) => p.id !== photoId) } : prev
       );
-      toast("Foto removida do dataset.", "success");
-    } else {
-      toast("Não foi possível excluir a foto.", "error");
+      toast("Foto removida.", "success");
+    } catch (err: any) {
+      toast(err?.message || "Não foi possível excluir a foto.", "error");
     }
   };
 
-  /* ── Salvar Edição do Animal ── */
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!animal) return;
-    setSavingEdit(true);
+    const effectiveBreed =
+      editForm.breed === "Outra" ? editForm.customBreed.trim() : editForm.breed.trim();
 
+    if (!effectiveBreed) {
+      toast("Digite o nome da raça personalizada.", "error");
+      return;
+    }
+
+    setSavingEdit(true);
     try {
-      const res = await fetch(`/api/animals/${animal.id}`, {
+      const data = await apiFetch<Animal>(`/api/animals/${animal.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           tag: editForm.tag,
           name: editForm.name,
-          breed: editForm.breed,
+          breed: effectiveBreed,
           sex: editForm.sex,
           weight: Number(editForm.weight),
           age: Number(editForm.age),
-        }),
+          length: editForm.length.trim() !== "" ? Number(editForm.length) : null,
+          location: editForm.location.trim() || null,
+          locationAddress: editForm.locationAddress.trim() || null,
+          latitude:
+            editForm.latitude.trim() !== ""
+              ? Number(editForm.latitude.replace(",", "."))
+              : null,
+          longitude:
+            editForm.longitude.trim() !== ""
+              ? Number(editForm.longitude.replace(",", "."))
+              : null,
+          observations: editForm.observations.trim() || null,
+        },
       });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setAnimal((prev) => (prev ? { ...prev, ...data, photos: prev.photos } : prev));
+
+      if (data) {
         setEditing(false);
-        toast("Dados do animal atualizados!", "success");
-      } else {
-        toast(data.error || "Erro ao atualizar dados.", "error");
+        toast("Dados atualizados.", "success");
+        await loadAnimal(true);
       }
-    } catch {
-      toast("Erro de conexão ao atualizar.", "error");
+    } catch (err: any) {
+      toast(err?.message || "Erro ao atualizar dados.", "error");
     } finally {
       setSavingEdit(false);
     }
   };
 
-  /* ── Excluir Animal ── */
   const handleDeleteAnimal = async () => {
     if (!animal) return;
     const ok = await confirm({
-      title: `Excluir Animal ${animal.tag}`,
-      message: `Tem certeza que deseja excluir o animal ${animal.tag} e todas as suas ${animal.photos?.length ?? 0} fotos? Esta ação é irreversível.`,
-      confirmText: "Excluir Definitivamente",
+      title: `Excluir ${animal.name || animal.tag}`,
+      message: `Deseja excluir este animal e suas ${animal.photos?.length ?? 0} foto(s)? Esta ação é irreversível.`,
+      confirmText: "Excluir definitivamente",
       variant: "danger",
     });
     if (!ok) return;
 
-    const res = await fetch(`/api/animals/${animal.id}`, { method: "DELETE" });
-    if (res.ok) {
-      toast("Animal excluído com sucesso.", "success");
+    try {
+      await apiFetch(`/api/animals/${animal.id}`, { method: "DELETE" });
+      toast("Animal excluído.", "success");
       router.push("/dashboard");
-    } else {
-      toast("Erro ao excluir animal.", "error");
+    } catch (err: any) {
+      toast(err?.message || "Erro ao excluir animal.", "error");
     }
   };
 
-  /* ── Recalcular Scores de Todas as Fotos Deste Animal ── */
   const handleRecalibrateAnimal = async () => {
     if (recalibratingAnimal || !animal) return;
+    const photoIds = (animal.photos ?? []).map((p) => p.id);
+    if (photoIds.length === 0) return;
+
     setRecalibratingAnimal(true);
+    setRecalibratingProgress({ current: 0, total: photoIds.length });
     try {
-      const res = await fetch(`/api/animals/${animal.id}/recalibrate`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Falha ao recalcular fotos do animal");
+      const summary = await recalibratePhotosSequentially(
+        photoIds,
+        ({ current, total, photoId, newScore }) => {
+          setRecalibratingProgress({ current, total });
+          if (newScore !== null) {
+            setAnimal((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    photos: (prev.photos ?? []).map((p) =>
+                      p.id === photoId ? { ...p, score: newScore } : p
+                    ),
+                  }
+                : prev
+            );
+          }
+        }
+      );
 
-      toast(data.message || `${data.updatedCount ?? 0} foto(s) recalculada(s)!`, "success");
-
-      if (Array.isArray(data.results)) {
-        const scoreMap = new Map(
-          data.results.map((r: { id: string; newScore: number }) => [r.id, r.newScore])
-        );
-        setAnimal((prev) =>
-          prev
-            ? {
-                ...prev,
-                photos: (prev.photos ?? []).map((p) =>
-                  scoreMap.has(p.id) ? { ...p, score: scoreMap.get(p.id) as number } : p
-                ),
-              }
-            : prev
-        );
-      }
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Erro ao recalcular confiança do animal", "error");
+      toast(
+        `${summary.updatedCount} de ${summary.totalCount} foto(s) reavaliadas.`,
+        summary.failedCount > 0 ? "info" : "success"
+      );
+      invalidateApiCache("/api/animals");
+      invalidateApiCache("/api/admin/animals");
+      await loadAnimal(true);
+    } catch (err: any) {
+      toast(err?.message || "Erro ao reavaliar enquadramento.", "error");
     } finally {
       setRecalibratingAnimal(false);
+      setRecalibratingProgress(null);
     }
   };
 
-  /* ── Atualização quando uma foto individual é recalculada no lightbox ── */
   const handlePhotoRecalibrated = (photoId: string, newScore: number) => {
     setAnimal((prev) =>
       prev
@@ -332,34 +436,247 @@ export default function AnimalProfilePage() {
           }
         : prev
     );
-    toast(`Confiança da foto atualizada para ${Math.round(newScore)}%!`, "success");
+    invalidateApiCache("/api/animals");
+    invalidateApiCache("/api/admin/animals");
+    toast(`Enquadramento atualizado para ${Math.round(newScore)}%.`, "success");
+    void loadAnimal(true);
+  };
+
+  const handleInviteCollaborator = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail.trim() || !animal) return;
+    setInviting(true);
+    try {
+      const res = await addCollaborator(animal.id, { email: inviteEmail.trim() });
+      toast(res.message || "Operador adicionado.", "success");
+      setInviteEmail("");
+      if (res.custody) {
+        setAnimal((prev) => (prev ? { ...prev, custody: res.custody } : prev));
+      } else {
+        await loadAnimal(true);
+      }
+    } catch (err: any) {
+      toast(err?.message || "Erro ao adicionar operador.", "error");
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const handleRemoveCollaborator = async (targetUserId: number, targetName: string) => {
+    if (!animal) return;
+    const ok = await confirm({
+      title: "Remover acesso",
+      message: `Remover o acesso de ${targetName} a este animal?`,
+      confirmText: "Remover",
+      variant: "danger",
+    });
+    if (!ok) return;
+
+    setCustodyActionLoading(true);
+    try {
+      const res = await removeCollaborator(animal.id, targetUserId);
+      toast(res.message || "Acesso removido.", "success");
+      if (res.custody) {
+        setAnimal((prev) => (prev ? { ...prev, custody: res.custody } : prev));
+      } else {
+        await loadAnimal(true);
+      }
+    } catch (err: any) {
+      toast(err?.message || "Erro ao remover acesso.", "error");
+    } finally {
+      setCustodyActionLoading(false);
+    }
+  };
+
+  const handleTransferOwnership = async (newOwnerId: number, targetName: string) => {
+    if (!animal) return;
+    const ok = await confirm({
+      title: "Transferir posse principal",
+      message: `Transferir a propriedade principal para ${targetName}? Você continuará como colaborador.`,
+      confirmText: "Transferir",
+      variant: "danger",
+    });
+    if (!ok) return;
+
+    setCustodyActionLoading(true);
+    try {
+      const res = await transferOwnership(animal.id, newOwnerId);
+      toast(res.message || "Posse transferida.", "success");
+      if (res.custody) {
+        setAnimal((prev) =>
+          prev ? { ...prev, custody: res.custody, isOwner: false, isShared: true } : prev
+        );
+      }
+      await loadAnimal(true);
+    } catch (err: any) {
+      toast(err?.message || "Erro ao transferir posse.", "error");
+    } finally {
+      setCustodyActionLoading(false);
+    }
   };
 
   if (loading) return <PageSkeleton />;
 
   if (!animal) {
     return (
-      <div className="min-h-[100dvh] flex items-center justify-center p-4 bg-theme-bg text-theme-primary">
-        <div className="card p-8 text-center max-w-sm w-full">
+      <AppShell showBack backHref="/dashboard" title="Animal não encontrado">
+        <div className="card p-8 text-center max-w-sm mx-auto mt-8">
           <p className="font-bold text-theme-primary mb-2">Animal não encontrado</p>
           <p className="text-xs text-theme-secondary mb-5">
             O registro pode ter sido removido ou você não possui permissão de acesso.
           </p>
           <button onClick={() => router.push("/dashboard")} className="btn-primary w-full">
-            Voltar ao Painel
+            Voltar ao rebanho
           </button>
         </div>
-      </div>
+      </AppShell>
     );
   }
 
-  const label = animal.name || animal.tag;
-  const cameraUrl = `/camera?animalId=${animal.id}&animalName=${encodeURIComponent(label)}`;
-  const photoCount = animal.photos?.length ?? 0;
+  const displayName = animal.name?.trim() || "Sem apelido";
+  const cameraUrl = `/camera?animalId=${animal.id}&animalName=${encodeURIComponent(displayName)}`;
+  const photos = animal.photos ?? [];
+  const photoCount = photos.length;
+  const custody = animal.custody;
+  const isOwner = isAnimalOwner;
+  const canManage = custody?.canManage ?? (isOwner || isAdmin);
+  const coordText = formatCoordinates(animal.latitude, animal.longitude);
+  const mapsUrl = buildGoogleMapsUrl(
+    animal.latitude,
+    animal.longitude,
+    animal.locationAddress || animal.location
+  );
+
+  const custodySection = (
+    <div className="card p-5 space-y-4">
+      <div className="pb-3 border-b border-theme">
+        <h2 className="text-base font-bold text-theme-primary">Guarda Compartilhada</h2>
+        <p className="text-xs text-theme-secondary mt-0.5">
+          Gerencie quem pode visualizar e registrar fotos deste animal
+        </p>
+      </div>
+
+      <div className="card-subtle p-3.5 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <span className="text-[11px] font-semibold text-theme-muted block">
+            Proprietário principal
+          </span>
+          <p className="text-sm font-bold text-theme-primary truncate">
+            {custody?.owner?.name || "Proprietário"}
+          </p>
+          {custody?.owner?.email && (
+            <p className="text-xs text-theme-secondary truncate">{custody.owner.email}</p>
+          )}
+        </div>
+        {isOwner && (
+          <span className="text-[11px] font-semibold bg-brand-soft px-2.5 py-1 rounded-[7px] shrink-0">
+            Você
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-2.5">
+        <span className="text-xs font-semibold text-theme-secondary block">
+          Colaboradores ({custody?.collaborators?.length ?? 0})
+        </span>
+
+        {custody?.collaborators && custody.collaborators.length > 0 ? (
+          <div className="divide-y divide-[var(--border-subtle)] card-subtle overflow-hidden">
+            {custody.collaborators.map((collab) => {
+              const isMe = user && Number(user.id) === collab.userId;
+              return (
+                <div
+                  key={collab.id}
+                  className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs sm:text-sm font-bold text-theme-primary truncate">
+                        {collab.user?.name || "Operador"}
+                      </span>
+                      {isMe && (
+                        <span className="text-[10px] font-semibold bg-brand-soft px-1.5 py-0.5 rounded">
+                          Você
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-theme-secondary truncate">{collab.user?.email}</p>
+                  </div>
+
+                  {canManage && !isMe && (
+                    <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                      <button
+                        type="button"
+                        disabled={custodyActionLoading}
+                        onClick={() =>
+                          handleTransferOwnership(collab.userId, collab.user?.name || "Operador")
+                        }
+                        className="btn-secondary !py-1.5 !px-2.5 !min-h-[32px] text-[11px]"
+                      >
+                        <ArrowRightLeft className="w-3 h-3" />
+                        <span>Transferir</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={custodyActionLoading}
+                        onClick={() =>
+                          handleRemoveCollaborator(collab.userId, collab.user?.name || "Operador")
+                        }
+                        className="btn-danger !py-1.5 !px-2.5 !min-h-[32px] text-[11px]"
+                      >
+                        <UserMinus className="w-3 h-3" />
+                        <span>Remover</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-xs text-theme-muted p-4 card-subtle text-center">
+            Nenhum colaborador vinculado ainda.
+          </p>
+        )}
+      </div>
+
+      {canManage && (
+        <form
+          onSubmit={handleInviteCollaborator}
+          className="pt-3 border-t border-theme flex flex-col sm:flex-row gap-2"
+        >
+          <input
+            type="email"
+            value={inviteEmail}
+            onChange={(e) => setInviteEmail(e.target.value)}
+            placeholder="E-mail do operador para compartilhar…"
+            className="field-input flex-1 text-xs sm:text-sm"
+          />
+          <button
+            type="submit"
+            disabled={inviting || !inviteEmail.trim()}
+            className="btn-primary !py-2 !px-4 !min-h-[40px] text-xs shrink-0"
+          >
+            {inviting ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <UserPlus className="w-3.5 h-3.5" />
+            )}
+            <span>Compartilhar</span>
+          </button>
+        </form>
+      )}
+    </div>
+  );
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-theme-bg text-theme-primary">
-      {/* Input oculto para seleção da galeria/computador */}
+    <AppShell
+      showBack
+      backHref="/dashboard"
+      title={displayName}
+      subtitle={`${animal.breed} — ${animal.sex}`}
+    >
       <input
         ref={fileInputRef}
         type="file"
@@ -368,182 +685,208 @@ export default function AnimalProfilePage() {
         onChange={handleSelectFromGallery}
       />
 
-      {/* Header Compacto */}
-      <header className="glass-header sticky top-0 z-20">
-        <div className="max-w-4xl mx-auto px-3 sm:px-4 h-12 sm:h-14 flex items-center justify-between gap-1.5 sm:gap-2">
-          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-            <button
-              onClick={() => router.push("/dashboard")}
-              aria-label="Voltar ao painel"
-              className="p-2 rounded-md min-w-[38px] min-h-[38px] flex items-center justify-center text-theme-secondary hover:bg-theme-surface-2 transition active:scale-95 touch-manipulation shrink-0"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 sm:gap-2">
-                <h1 className="text-sm sm:text-base font-bold text-theme-primary truncate max-w-[100px] xs:max-w-[170px] sm:max-w-xs">
-                  {label}
-                </h1>
-                <span className="font-mono-tag text-[10px] sm:text-xs font-bold px-1.5 sm:px-2 py-0.5 rounded-md bg-slate-900 dark:bg-emerald-950 text-white dark:text-emerald-300 shrink-0">
-                  {animal.tag}
-                </span>
+      <div className="space-y-5">
+        {/* Hero Card da Ficha */}
+        <section className="card overflow-hidden">
+          <div className="p-5 sm:p-6 flex flex-col md:flex-row md:items-start justify-between gap-4">
+            <div className="min-w-0 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {!isOwner && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-[7px] bg-sky-500/12 text-sky-700 dark:text-sky-300">
+                    <Users className="w-3 h-3" />
+                    <span>Compartilhado</span>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={copyTag}
+                  title={`Copiar identificador: ${animal.tag}`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-[7px] text-xs font-mono-tag text-theme-secondary bg-theme-surface-2 hover:text-theme-primary border border-theme transition"
+                >
+                  <Tag className="w-3 h-3 opacity-70" />
+                  <span>{animal.tag}</span>
+                  {copiedTag ? (
+                    <Check className="w-3 h-3 text-brand" />
+                  ) : (
+                    <Copy className="w-3 h-3 opacity-60" />
+                  )}
+                </button>
               </div>
-              <p className="text-[10px] sm:text-xs text-theme-secondary truncate hidden xs:block">
-                {animal.breed} · {animal.sex} · {photoCount} {photoCount === 1 ? "foto" : "fotos"}
-              </p>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-1 shrink-0">
-            <ThemeToggle />
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="p-2 rounded-md min-w-[38px] min-h-[38px] flex items-center justify-center text-theme-secondary hover:bg-theme-surface-2 transition active:scale-95 touch-manipulation"
-              title="Editar dados do animal"
-              aria-label="Editar dados do animal"
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={handleDeleteAnimal}
-              className="p-2 rounded-md min-w-[38px] min-h-[38px] flex items-center justify-center text-theme-secondary hover:text-red-500 hover:bg-red-500/10 transition active:scale-95 touch-manipulation"
-              title="Excluir animal"
-              aria-label="Excluir animal"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </header>
+              <h1 className="text-2xl sm:text-3xl font-bold text-theme-primary tracking-tight truncate">
+                {displayName}
+              </h1>
 
-      <main className="flex-1 p-3 sm:p-6 max-w-4xl mx-auto w-full flex flex-col gap-5 pb-20 sm:pb-8">
-        {/* Card Zootécnico */}
-        <div className="card p-4 sm:p-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
-            <div>
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md mb-2">
-                <Activity className="w-3 h-3" />
-                Ficha Zootécnica · Dataset ICS
-              </span>
-              <h2 className="text-xl font-extrabold text-theme-primary">
-                {animal.name ? `${animal.name} (${animal.tag})` : `Brinco ${animal.tag}`}
-              </h2>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-theme-secondary">
+                <span className="inline-flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5 text-brand shrink-0" />
+                  <span>{animal.location || "Localização não informada"}</span>
+                </span>
+                {coordText && (
+                  <span className="font-mono-tag text-[11px] text-theme-muted">
+                    {coordText}
+                  </span>
+                )}
+                {mapsUrl && (
+                  <a
+                    href={mapsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-semibold text-brand hover:underline"
+                  >
+                    <span>Mapa</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
+            {/* Ações principais do animal */}
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <Link href={cameraUrl} className="btn-primary !min-h-[40px] !py-2 !px-4 text-xs">
+                <Camera className="w-4 h-4" />
+                <span>Fotografar</span>
+              </Link>
+
               <button
                 type="button"
                 disabled={uploading}
                 onClick={() => fileInputRef.current?.click()}
-                className="btn-secondary py-2.5 px-4 text-xs justify-center min-h-[42px]"
+                className="btn-secondary !min-h-[40px] !py-2 !px-3.5 text-xs"
               >
-                <Upload className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                Enviar da Galeria
+                <Upload className="w-4 h-4" />
+                <span>Galeria</span>
               </button>
-              <Link href={cameraUrl} className="btn-primary py-2.5 px-4 text-xs justify-center min-h-[42px]">
-                <Camera className="w-4 h-4" />
-                Câmera IA ao Vivo
-              </Link>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <Stat icon={<Tag className="w-4 h-4" />} label="Raça" value={animal.breed} />
-            <Stat icon={<Dna className="w-4 h-4" />} label="Sexo" value={animal.sex} />
-            <Stat icon={<Scale className="w-4 h-4" />} label="Peso" value={`${animal.weight} kg`} />
-            <Stat
-              icon={<Calendar className="w-4 h-4" />}
-              label="Idade"
-              value={`${animal.age} meses`}
-            />
-          </div>
-        </div>
-
-        {/* Galeria de Capturas */}
-        <div>
-          <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
-            <div>
-              <h3 className="text-base font-extrabold text-theme-primary">
-                Galeria do Dataset · Região Posterior
-              </h3>
-              <p className="text-xs text-theme-secondary mt-0.5">
-                Clique em qualquer imagem para ampliar em tela cheia ou verificar a Confiança IA
-              </p>
-            </div>
-
-            {photoCount > 0 && (
               <button
                 type="button"
-                onClick={handleRecalibrateAnimal}
-                disabled={recalibratingAnimal}
-                className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5 shrink-0 border-emerald-500/30 hover:border-emerald-500/50"
-                title="Recalcular a confiança de todas as fotos deste animal com a IA local calibrada"
+                onClick={() => setEditing(true)}
+                className="btn-secondary !min-h-[40px] !py-2 !px-3 text-xs"
+                title="Editar ficha"
               >
-                {recalibratingAnimal ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
-                ) : (
-                  <Activity className="w-3.5 h-3.5 text-emerald-500" />
-                )}
-                <span>
-                  {recalibratingAnimal ? "Recalculando…" : "Recalcular Confiança"}
-                </span>
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Editar</span>
               </button>
-            )}
+
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={handleDeleteAnimal}
+                  className="btn-danger !min-h-[40px] !py-2 !px-3 text-xs"
+                  title="Excluir animal"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Excluir</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          <PhotoGrid
-            photos={animal.photos ?? []}
-            onDelete={handleDeletePhoto}
-            onSelect={(_, index) => setLightboxIndex(index)}
-          />
-        </div>
-      </main>
+          {/* Métricas físicas em linha dividida única */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 border-t border-theme divide-y sm:divide-y-0 sm:divide-x divide-[var(--border-subtle)] bg-theme-surface-2/40">
+            <div className="p-3.5 sm:px-5">
+              <p className="text-[11px] font-semibold text-theme-muted">Raça</p>
+              <p className="text-sm font-bold text-theme-primary mt-0.5 truncate">{animal.breed}</p>
+            </div>
+            <div className="p-3.5 sm:px-5">
+              <p className="text-[11px] font-semibold text-theme-muted">Sexo</p>
+              <p className="text-sm font-bold text-theme-primary mt-0.5 truncate">{animal.sex}</p>
+            </div>
+            <div className="p-3.5 sm:px-5">
+              <p className="text-[11px] font-semibold text-theme-muted">Peso</p>
+              <p className="text-sm font-bold text-theme-primary tabular-nums mt-0.5">
+                {animal.weight} kg
+              </p>
+            </div>
+            <div className="p-3.5 sm:px-5">
+              <p className="text-[11px] font-semibold text-theme-muted">Idade</p>
+              <p className="text-sm font-bold text-theme-primary tabular-nums mt-0.5">
+                {animal.age} meses
+              </p>
+            </div>
+            <div className="p-3.5 sm:px-5 col-span-2 sm:col-span-1">
+              <p className="text-[11px] font-semibold text-theme-muted">Comprimento</p>
+              <p className="text-sm font-bold text-theme-primary tabular-nums mt-0.5">
+                {animal.length ? `${animal.length} cm` : "—"}
+              </p>
+            </div>
+          </div>
+        </section>
 
-      {/* Barra Inferior Mobile */}
-      <div
-        className="sm:hidden fixed bottom-0 left-0 right-0 bg-theme-surface/95 backdrop-blur-md border-t border-theme p-2.5 z-20 flex gap-2"
-        style={{ paddingBottom: "max(0.6rem, env(safe-area-inset-bottom))" }}
-      >
-        <button
-          type="button"
-          disabled={uploading}
-          onClick={() => fileInputRef.current?.click()}
-          className="btn-secondary flex-1 py-2.5 text-xs"
-        >
-          <Upload className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          Galeria
-        </button>
-        <Link href={cameraUrl} className="btn-primary flex-1 py-2.5 text-xs">
-          <Camera className="w-4 h-4" />
-          Câmera IA
-        </Link>
+        {/* Abas do Prontuário */}
+        <AnimalHealthTabs
+          animal={animal}
+          canEdit={true}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onReloadAnimal={() => loadAnimal(true)}
+          collaboratorsCount={custody?.collaborators?.length ?? 0}
+          custodyContent={custodySection}
+          galleryContent={
+            <div className="space-y-5">
+              <div className="card p-4 sm:p-5">
+                <div className="flex flex-wrap justify-between items-center gap-3 mb-4 pb-3 border-b border-theme">
+                  <div>
+                    <h2 className="text-base font-bold text-theme-primary">
+                      Galeria de capturas ({photoCount})
+                    </h2>
+                    <p className="text-xs text-theme-secondary mt-0.5">
+                      Toque em qualquer imagem para ampliar ou reavaliar enquadramento
+                    </p>
+                  </div>
+
+                  {photoCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleRecalibrateAnimal}
+                      disabled={recalibratingAnimal}
+                      className="btn-secondary !py-1.5 !px-3 !min-h-[36px] text-xs shrink-0 tabular-nums"
+                    >
+                      {recalibratingAnimal ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-brand" />
+                      ) : (
+                        <Activity className="w-3.5 h-3.5 text-brand" />
+                      )}
+                      <span>
+                        {recalibratingAnimal
+                          ? recalibratingProgress
+                            ? `Reavaliando ${recalibratingProgress.current}/${recalibratingProgress.total}…`
+                            : "Reavaliando…"
+                          : "Reavaliar enquadramento"}
+                      </span>
+                    </button>
+                  )}
+                </div>
+
+                <PhotoGrid
+                  photos={photos}
+                  onDelete={isOwner || isAdmin ? handleDeletePhoto : undefined}
+                  onSelect={(_, index) => setLightboxIndex(index)}
+                />
+              </div>
+            </div>
+          }
+        />
       </div>
 
-      {/* Modal de Pré-Avaliação de Confiança IA Antes do Upload */}
+      {/* Modal pré-upload de foto da galeria */}
       {pendingPhoto && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
           <div className="card max-w-md w-full overflow-hidden animate-scale-in">
             <div className="px-4 py-3 border-b border-theme flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-emerald-500" />
-                <h3 className="font-bold text-sm text-theme-primary">
-                  Avaliação de Confiança Pré-Upload
-                </h3>
-              </div>
+              <h3 className="font-bold text-sm text-theme-primary">Validação da imagem</h3>
               <button
                 type="button"
                 disabled={uploading}
                 onClick={() => setPendingPhoto(null)}
-                className="p-1 rounded-md text-theme-muted hover:text-theme-primary"
+                className="p-1 rounded-lg text-theme-muted hover:text-theme-primary"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="p-4 flex flex-col gap-3.5">
-              <div className="aspect-[4/3] w-full rounded-lg overflow-hidden bg-black border border-theme relative">
+              <div className="aspect-[4/3] w-full rounded-[10px] overflow-hidden bg-black border border-theme">
                 <img
                   src={pendingPhoto.previewUrl}
                   alt="Prévia da foto selecionada"
@@ -551,63 +894,28 @@ export default function AnimalProfilePage() {
                 />
               </div>
 
-              {/* Card de Confiança Pré-Upload */}
-              <div className="rounded-lg p-3 bg-theme-surface-2 border border-theme">
+              <div className="card-subtle p-3.5">
                 {pendingPhoto.evaluating ? (
-                  <div className="flex items-center gap-3 py-2">
-                    <Loader2 className="w-5 h-5 animate-spin text-emerald-500 shrink-0" />
-                    <div>
-                      <p className="text-xs font-bold text-theme-primary">
-                        Analisando foto com Inteligência Artificial…
-                      </p>
-                      <p className="text-[11px] text-theme-secondary">
-                        Calculando confiança de enquadramento e nitidez antes de enviar
-                      </p>
-                    </div>
+                  <div className="flex items-center gap-3 py-1">
+                    <Loader2 className="w-4 h-4 animate-spin text-brand shrink-0" />
+                    <span className="text-xs font-semibold text-theme-primary">
+                      Verificando nitidez e enquadramento…
+                    </span>
                   </div>
                 ) : pendingPhoto.scoreResult ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-theme-muted block">
-                          Confiança IA Calculada
-                        </span>
-                        <span className="text-xs font-bold text-theme-primary">
-                          {pendingPhoto.scoreResult.feedback}
-                        </span>
-                      </div>
-                      <span
-                        className={`text-lg font-black px-2.5 py-0.5 rounded-md ${
-                          pendingPhoto.scoreResult.score >= 70
-                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                            : pendingPhoto.scoreResult.score >= 45
-                            ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                            : "bg-rose-500/15 text-rose-500"
-                        }`}
-                      >
+                      <span className="text-xs font-semibold text-theme-primary">
+                        {pendingPhoto.scoreResult.feedback}
+                      </span>
+                      <span className="text-sm font-bold tabular-nums px-2 py-0.5 rounded-[7px] bg-brand-soft shrink-0">
                         {Math.round(pendingPhoto.scoreResult.score)}%
                       </span>
                     </div>
-
-                    <div className="w-full h-1.5 rounded-sm bg-theme-surface overflow-hidden">
-                      <div
-                        className={`h-full transition-all duration-300 ${
-                          pendingPhoto.scoreResult.score >= 70
-                            ? "bg-emerald-500"
-                            : pendingPhoto.scoreResult.score >= 45
-                            ? "bg-amber-500"
-                            : "bg-rose-500"
-                        }`}
-                        style={{
-                          width: `${Math.min(100, Math.max(8, pendingPhoto.scoreResult.score))}%`,
-                        }}
-                      />
-                    </div>
-
                     {pendingPhoto.scoreResult.lowQuality && (
-                      <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1.5 font-medium">
+                      <p className="text-[11px] text-amber-700 dark:text-amber-400 flex items-center gap-1.5 font-medium">
                         <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                        Confiança moderada/baixa — você ainda pode salvar ou escolher outra foto.
+                        <span>Enquadramento baixo. Você ainda pode salvar ou trocar.</span>
                       </p>
                     )}
                   </div>
@@ -619,22 +927,18 @@ export default function AnimalProfilePage() {
                   type="button"
                   disabled={uploading}
                   onClick={() => setPendingPhoto(null)}
-                  className="btn-secondary flex-1 py-2.5 text-xs"
+                  className="btn-secondary flex-1 !py-2 !min-h-[40px] text-xs"
                 >
-                  Escolher Outra
+                  Trocar foto
                 </button>
                 <button
                   type="button"
                   disabled={uploading || pendingPhoto.evaluating}
                   onClick={handleConfirmGalleryUpload}
-                  className="btn-primary flex-1 py-2.5 text-xs"
+                  className="btn-primary flex-1 !py-2 !min-h-[40px] text-xs"
                 >
-                  {uploading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Upload className="w-4 h-4" />
-                  )}
-                  <span>{uploading ? "Enviando…" : "Confirmar e Salvar"}</span>
+                  {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  <span>{uploading ? "Enviando…" : "Salvar foto"}</span>
                 </button>
               </div>
             </div>
@@ -642,14 +946,12 @@ export default function AnimalProfilePage() {
         </div>
       )}
 
-      {/* Modal de Edição */}
+      {/* Modal de edição */}
       {editing && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="card w-full max-w-md overflow-hidden animate-scale-in">
-            <div className="px-5 py-4 border-b border-theme flex items-center justify-between">
-              <h3 className="font-extrabold text-base text-theme-primary">
-                Editar Ficha do Animal
-              </h3>
+          <div className="card w-full max-w-md max-h-[90dvh] overflow-y-auto animate-scale-in">
+            <div className="px-5 py-4 border-b border-theme flex items-center justify-between sticky top-0 bg-theme-surface z-10">
+              <h3 className="font-bold text-base text-theme-primary">Editar ficha</h3>
               <button
                 type="button"
                 onClick={() => setEditing(false)}
@@ -660,28 +962,45 @@ export default function AnimalProfilePage() {
             </div>
 
             <form onSubmit={handleSaveEdit} className="p-5 flex flex-col gap-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="field-label">Brinco</label>
-                  <input
-                    type="text"
-                    required
-                    value={editForm.tag}
-                    onChange={(e) =>
-                      setEditForm((p) => ({ ...p, tag: e.target.value.toUpperCase() }))
-                    }
-                    className="field-input font-mono-tag uppercase"
-                  />
+              <div>
+                <label className="field-label">Apelido ou nome</label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  placeholder="Ex: Mimosa, Estrela, Lote 42"
+                  onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))}
+                  className="field-input font-semibold"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <label className="field-label !mb-0">Brinco ou identificador</label>
+                  {(isOwner || isAdmin) && bleSupported && (
+                    <button
+                      type="button"
+                      onClick={handleToggleEditBle}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-[7px] border border-theme bg-theme-surface-2 text-theme-secondary hover:text-theme-primary transition"
+                    >
+                      {bleStatus === "connected" ? (
+                        <BluetoothConnected className="w-3 h-3 text-brand" />
+                      ) : (
+                        <Bluetooth className="w-3 h-3 text-brand" />
+                      )}
+                      <span>
+                        {bleStatus === "connected" ? "Leitor conectado" : "Ler via Bluetooth"}
+                      </span>
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <label className="field-label">Apelido</label>
-                  <input
-                    type="text"
-                    value={editForm.name}
-                    onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))}
-                    className="field-input"
-                  />
-                </div>
+                <input
+                  type="text"
+                  required
+                  disabled={!isOwner && !isAdmin}
+                  value={editForm.tag}
+                  onChange={(e) => setEditForm((p) => ({ ...p, tag: e.target.value.toUpperCase() }))}
+                  className="field-input font-mono-tag text-xs uppercase disabled:opacity-50"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -715,7 +1034,21 @@ export default function AnimalProfilePage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {editForm.breed === "Outra" && (
+                <div>
+                  <label className="field-label">Nome da raça</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.customBreed}
+                    onChange={(e) => setEditForm((p) => ({ ...p, customBreed: e.target.value }))}
+                    placeholder="Ex: Simental, Tabapuã"
+                    className="field-input text-sm"
+                  />
+                </div>
+              )}
+
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="field-label">Peso (kg)</label>
                   <input
@@ -725,41 +1058,70 @@ export default function AnimalProfilePage() {
                     required
                     value={editForm.weight}
                     onChange={(e) => setEditForm((p) => ({ ...p, weight: e.target.value }))}
-                    className="field-input"
+                    className="field-input tabular-nums"
                   />
                 </div>
                 <div>
-                  <label className="field-label">Idade (meses)</label>
+                  <label className="field-label">Idade (m)</label>
                   <input
                     type="number"
                     min="0"
                     required
                     value={editForm.age}
                     onChange={(e) => setEditForm((p) => ({ ...p, age: e.target.value }))}
-                    className="field-input"
+                    className="field-input tabular-nums"
                   />
                 </div>
+                <div>
+                  <label className="field-label">Compr. (cm)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="1"
+                    value={editForm.length}
+                    placeholder="165"
+                    onChange={(e) => setEditForm((p) => ({ ...p, length: e.target.value }))}
+                    className="field-input tabular-nums"
+                  />
+                </div>
+              </div>
+
+              <FarmLocationFields
+                value={{
+                  location: editForm.location,
+                  locationAddress: editForm.locationAddress,
+                  latitude: editForm.latitude,
+                  longitude: editForm.longitude,
+                }}
+                onChange={(loc) => setEditForm((p) => ({ ...p, ...loc }))}
+                compact
+              />
+
+              <div>
+                <label className="field-label">Observação da ficha</label>
+                <textarea
+                  rows={2}
+                  value={editForm.observations}
+                  onChange={(e) => setEditForm((p) => ({ ...p, observations: e.target.value }))}
+                  className="field-input text-xs resize-y"
+                />
               </div>
 
               <div className="flex justify-end gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={() => setEditing(false)}
-                  className="btn-secondary py-2.5 px-4 text-xs"
+                  className="btn-secondary !py-2 !px-4 !min-h-[40px] text-xs"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={savingEdit}
-                  className="btn-primary py-2.5 px-5 text-xs"
+                  className="btn-primary !py-2 !px-5 !min-h-[40px] text-xs"
                 >
-                  {savingEdit ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Check className="w-4 h-4" />
-                  )}
-                  Salvar Alterações
+                  {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  <span>Salvar</span>
                 </button>
               </div>
             </form>
@@ -769,12 +1131,12 @@ export default function AnimalProfilePage() {
 
       {lightboxIndex !== null && photoCount > 0 && (
         <PhotoLightbox
-          photos={animal.photos}
+          photos={photos}
           initialIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onPhotoRecalibrated={handlePhotoRecalibrated}
         />
       )}
-    </div>
+    </AppShell>
   );
 }

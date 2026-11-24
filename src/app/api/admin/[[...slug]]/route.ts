@@ -113,6 +113,12 @@ export async function GET(req: Request, context: Context) {
           "sex",
           "weight_kg",
           "age_months",
+          "length_cm",
+          "location",
+          "location_address",
+          "latitude",
+          "longitude",
+          "observations",
           "view",
           "ai_score",
           "created_at",
@@ -145,6 +151,12 @@ export async function GET(req: Request, context: Context) {
             sex: animal.sex,
             weight: animal.weight,
             age: animal.age,
+            length: animal.length ?? null,
+            location: animal.location || "",
+            locationAddress: animal.locationAddress || "",
+            latitude: animal.latitude ?? null,
+            longitude: animal.longitude ?? null,
+            observations: animal.observations || "",
             view: photo.view,
             aiScore: photo.score,
             createdAt: photo.createdAt.toISOString(),
@@ -172,6 +184,12 @@ export async function GET(req: Request, context: Context) {
               escapeCsv(animal.sex),
               escapeCsv(animal.weight),
               escapeCsv(animal.age),
+              escapeCsv(animal.length ?? ""),
+              escapeCsv(animal.location || ""),
+              escapeCsv(animal.locationAddress || ""),
+              escapeCsv(animal.latitude ?? ""),
+              escapeCsv(animal.longitude ?? ""),
+              escapeCsv(animal.observations || ""),
               escapeCsv(photo.view),
               escapeCsv(photo.score ?? ""),
               escapeCsv(photo.createdAt.toISOString()),
@@ -187,7 +205,7 @@ export async function GET(req: Request, context: Context) {
 
       const zipBuffer = zip.toBuffer();
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const downloadFilename = `cattle-bcs-dataset-${timestamp}.zip`;
+      const downloadFilename = `cattle-capture-dataset-${timestamp}.zip`;
 
       return new NextResponse(new Uint8Array(zipBuffer), {
         status: 200,

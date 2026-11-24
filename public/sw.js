@@ -1,11 +1,29 @@
 /**
  * Service Worker do CattleCapture PWA (`public/sw.js`).
  *
- * Estratégia Network-First com fallback para cache, permitindo que o app seja
- * instalado na tela inicial do celular e opere com estabilidade em conexões instáveis.
+ * - Assets imutáveis `/_next/static/*`, `/models/*` e `/ort/*`: Cache-First para operação
+ *   offline da IA de identificação no curral.
+ * - Páginas e navegação: Network-First com fallback em cache.
  */
-const CACHE_NAME = "cattle-capture-pwa-v2";
-const PRECACHE_URLS = ["/", "/login", "/dashboard", "/icon.svg", "/manifest.webmanifest"];
+const CACHE_NAME = "cattle-capture-pwa-v3";
+const PRECACHE_URLS = [
+  "/",
+  "/login",
+  "/dashboard",
+  "/camera",
+  "/icon.svg",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/apple-touch-icon.png",
+  "/manifest.webmanifest",
+];
+const EDGE_AI_ASSETS = [
+  "/models/identifier.onnx",
+  "/models/version-RFB-320.onnx",
+  "/models/yolo11n.onnx",
+  "/ort/ort-wasm-simd-threaded.mjs",
+  "/ort/ort-wasm-simd-threaded.wasm",
+];
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -33,7 +51,28 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
-  if (url.pathname.startsWith("/api/")) return;
+  if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+
+  if (
+    url.pathname.startsWith("/_next/static/") ||
+    url.pathname.startsWith("/models/") ||
+    url.pathname.startsWith("/ort/")
+  ) {
+    event.respondWith(
+      caches.match(request).then(
+        (cached) =>
+          cached ||
+          fetch(request).then((response) => {
+            if (response && response.status === 200) {
+              const copy = response.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
+            }
+            return response;
+          })
+      )
+    );
+    return;
+  }
 
   event.respondWith(
     fetch(request)
@@ -46,4 +85,14 @@ self.addEventListener("fetch", (event) => {
       })
       .catch(() => caches.match(request))
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "WARM_AI_CACHE") {
+    event.waitUntil(
+      caches
+        .open(CACHE_NAME)
+        .then((cache) => cache.addAll(EDGE_AI_ASSETS).catch(() => {}))
+    );
+  }
 });

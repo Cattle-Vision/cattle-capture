@@ -1,207 +1,218 @@
 /**
- * Landing Page Principal (`src/app/page.tsx`).
- *
- * Responsabilidades:
- * - Redirecionar usuários já autenticados diretamente para `/dashboard`.
- * - Apresentar a plataforma CattleCapture (Visão Computacional & Dataset ICC Bovino)
- *   com suporte completo a Tema Claro e Escuro (`ThemeToggle`) e instalação PWA.
+ * Landing Page ("Agro Precisão" · `src/app/page.tsx`).
  */
 import Link from "next/link";
-import {
-  Camera,
-  Activity,
-  FileArchive,
-  ShieldCheck,
-  ArrowRight,
-  ScanLine,
-  Database,
-  CheckCircle2,
-} from "lucide-react";
+import { ArrowRight, Check, ChevronRight, ScanLine, WifiOff, Users } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { LandingAuthCheck } from "@/components/LandingAuthCheck";
+import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
+import { BrandMark } from "@/components/BrandMark";
 
 export default function LandingPage() {
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-theme-bg text-theme-primary selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-[100dvh] flex flex-col bg-theme-bg text-theme-primary selection:bg-[#184E3A] selection:text-white">
       <LandingAuthCheck />
-      {/* Header Glassmorphic Compacto */}
-      <header className="glass-header sticky top-0 z-30">
-        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-12 sm:h-14 flex items-center justify-between gap-1 sm:gap-2">
-          <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-md bg-emerald-600 flex items-center justify-center text-white shrink-0">
-              <ScanLine className="w-4 h-4 stroke-[2.2]" />
-            </div>
-            <div className="min-w-0">
-              <span className="font-bold text-sm sm:text-base tracking-tight text-theme-primary truncate block">
-                Cattle<span className="text-emerald-600 dark:text-emerald-400">Capture</span>
-              </span>
-              <span className="hidden sm:inline-block text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
-                Dataset Oficial · IA de ICS
-              </span>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-            <ThemeToggle className="p-1.5 sm:p-2" />
-            <Link href="/login" className="btn-ghost text-xs sm:text-sm px-2.5 py-1.5">
+      <header className="glass-header sticky top-0 z-30">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+          <Link href="/" className="flex items-center gap-2.5 min-w-0">
+            <BrandMark className="w-8 h-8 sm:w-9 sm:h-9" />
+            <div className="min-w-0">
+              <span className="font-bold text-base sm:text-[17px] tracking-tight text-theme-primary block leading-none">
+                Cattle<span style={{ color: "var(--color-brand-light)" }}>Capture</span>
+              </span>
+              <span className="text-[11px] font-medium text-theme-muted hidden sm:block mt-0.5">
+                Captura e Curadoria de Dataset Bovino
+              </span>
+            </div>
+          </Link>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <PwaInstallPrompt variant="button" className="hidden sm:inline-flex" />
+            <ThemeToggle />
+            <Link href="/login" className="btn-ghost text-xs sm:text-sm px-3">
               Entrar
             </Link>
-            <Link href="/register" className="btn-primary text-xs sm:text-sm px-3 py-1.5">
-              <span className="xs:hidden">Criar</span>
-              <span className="hidden xs:inline">Criar conta</span>
-              <ArrowRight className="w-3.5 h-3.5 hidden sm:inline" />
+            <Link href="/register" className="btn-primary !min-h-[38px] text-xs sm:text-sm px-4">
+              <span>Criar conta</span>
+              <ArrowRight className="w-3.5 h-3.5 hidden xs:inline" />
             </Link>
           </div>
         </div>
       </header>
 
-      {/* Hero Section */}
       <main className="flex-1">
-        <section className="relative overflow-hidden pt-10 pb-14 sm:pt-20 sm:pb-24 px-4 sm:px-6">
-          <div className="relative max-w-4xl mx-auto text-center">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wider mb-5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
-              <Activity className="w-3.5 h-3.5 text-emerald-500" />
-              Iniciativa de Pesquisa · Construção de Dataset para IA de ICS
-            </div>
-
-            <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-theme-primary leading-[1.15] mb-5">
-              Coleta de imagens para treinar a{" "}
-              <span className="text-emerald-600 dark:text-emerald-400">
-                futura IA de ICS Bovino
+        {/* Hero Editorial */}
+        <section className="pt-12 pb-14 sm:pt-20 sm:pb-24 px-4 sm:px-6">
+          <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
+            <div className="lg:col-span-6">
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-brand-soft mb-5">
+                Captura de dataset e prontuário zootécnico
               </span>
-            </h1>
 
-            <p className="text-sm sm:text-base text-theme-secondary leading-relaxed max-w-2xl mx-auto mb-8">
-              Utilize nossa câmera inteligente com mira anatômica para fotografar a região posterior do rebanho.
-              Cada foto coletada alimenta e treina o modelo de Deep Learning que automatizará
-              o cálculo do <strong>Índice de Condição Corporal (ICS / ECC)</strong>.
-            </p>
+              <h1 className="text-3xl sm:text-4xl lg:text-[46px] font-bold tracking-tight text-theme-primary leading-[1.1] mb-5">
+                Padronize capturas do rebanho e organize o dataset, do tronco ao escritório.
+              </h1>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Link
-                href="/register"
-                className="btn-primary w-full sm:w-auto px-6 py-3 text-sm shadow-sm"
-              >
-                Colaborar com o Dataset
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-              <Link
-                href="/login"
-                className="btn-secondary w-full sm:w-auto px-6 py-3 text-sm"
-              >
-                Acessar Plataforma
-              </Link>
-            </div>
-
-            {/* Destaques Técnicos */}
-            <div className="mt-10 pt-6 border-t border-theme grid grid-cols-2 sm:grid-cols-4 gap-3 text-left max-w-3xl mx-auto">
-              {[
-                { label: "Dataset para IA de ICS", desc: "Anotação zootécnica de escore corporal" },
-                { label: "Enquadramento Anatômico", desc: "Mira inteligente focada na garupa e ísquios" },
-                { label: "Suporte a Qualquer Foto", desc: "Aceita resoluções gigantes e formatos livres" },
-                { label: "Exportação Científica", desc: "Download em ZIP + JSON para treinamento" },
-              ].map((item) => (
-                <div
-                  key={item.label}
-                  className="bg-theme-surface border border-theme rounded-lg p-3 shadow-2xs"
-                >
-                  <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold text-xs mb-1">
-                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    {item.label}
-                  </div>
-                  <p className="text-xs text-theme-secondary leading-snug">{item.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Arquitetura do Fluxo de Coleta */}
-        <section className="py-16 sm:py-24 px-4 sm:px-6 bg-theme-surface border-y border-theme">
-          <div className="max-w-6xl mx-auto">
-            <div className="text-center max-w-2xl mx-auto mb-14">
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-theme-primary tracking-tight">
-                Fluxo desenhado para operação no curral
-              </h2>
-              <p className="text-sm sm:text-base text-theme-secondary mt-2">
-                Interface ergonômica com tema Claro/Escuro adaptável ao sol intenso ou galpão.
+              <p className="text-sm sm:text-base text-theme-secondary leading-relaxed max-w-lg mb-8">
+                Identifique cada bovino em segundos, registre fotos anatômicas guiadas por IA de
+                enquadramento e mantenha um banco de dados completo com histórico sanitário e de lotes.
               </p>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {[
-                {
-                  icon: <ScanLine className="w-6 h-6 text-emerald-500" />,
-                  step: "01",
-                  title: "Identificação por Brinco",
-                  desc: "Busque rapidamente pelo brinco oficial (ex: NEL-0142) ou apelido. Caso o animal ainda não exista, o formulário já abre preenchido.",
-                },
-                {
-                  icon: <Camera className="w-6 h-6 text-emerald-500" />,
-                  step: "02",
-                  title: "Confiança IA Antes do Upload",
-                  desc: "Acompanhe a confiança em tempo real no visor da câmera e veja a nota de validação da IA imediatamente após bater ou escolher a foto.",
-                },
-                {
-                  icon: <FileArchive className="w-6 h-6 text-emerald-500" />,
-                  step: "03",
-                  title: "Curadoria & Exportação Científica",
-                  desc: "Audite fotografias com anotações anatômicas e baixe o dataset consolidado em ZIP e JSON para alimentar o treinamento da IA.",
-                },
-              ].map((card) => (
-                <div
-                  key={card.step}
-                  className="card p-5 flex flex-col justify-between hover:border-emerald-500/50 transition-all"
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                        {card.icon}
-                      </div>
-                      <span className="font-mono-tag text-[11px] font-bold text-theme-muted bg-theme-surface-2 px-2 py-0.5 rounded-md">
-                        ETAPA {card.step}
-                      </span>
-                    </div>
-                    <h3 className="text-base font-bold text-theme-primary mb-1.5">{card.title}</h3>
-                    <p className="text-xs text-theme-secondary leading-relaxed">{card.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* CTA Final */}
-        <section className="py-12 sm:py-16 px-4 sm:px-6">
-          <div className="max-w-4xl mx-auto rounded-lg bg-slate-900 border border-slate-800 text-white p-6 sm:p-10 flex flex-col sm:flex-row items-center justify-between gap-6 shadow-md">
-            <div className="max-w-lg text-center sm:text-left">
-              <div className="inline-flex items-center gap-1.5 text-emerald-400 text-xs font-bold uppercase tracking-wider mb-2">
-                <Database className="w-3.5 h-3.5" />
-                Construção Coletiva do Dataset de ICS
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 max-w-md">
+                <Link href="/register" className="btn-primary py-3 px-6 text-sm sm:text-base justify-center">
+                  <span>Começar agora</span>
+                  <ChevronRight className="w-4 h-4" />
+                </Link>
+                <Link href="/login" className="btn-secondary py-3 px-6 text-sm sm:text-base justify-center">
+                  <span>Já tenho conta</span>
+                </Link>
               </div>
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight mb-2">
-                Participe do treinamento da IA de ICS
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                Cada foto capturada em campo com nossa mira guiada amplia o banco de dados oficial que treina o modelo de predição do Índice de Condição Corporal.
+
+              <div className="mt-3 sm:hidden">
+                <PwaInstallPrompt variant="button" className="w-full justify-center" />
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-theme flex flex-wrap gap-x-6 gap-y-2.5 text-xs font-medium text-theme-secondary">
+                <span className="inline-flex items-center gap-1.5">
+                  <Check className="w-3.5 h-3.5 text-brand" />
+                  IA de enquadramento embarcada
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Check className="w-3.5 h-3.5 text-brand" />
+                  Funciona sem internet
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Check className="w-3.5 h-3.5 text-brand" />
+                  Leitor de brinco Bluetooth
+                </span>
+              </div>
+            </div>
+
+            {/* Prévia visual realista do prontuário e captura de dataset */}
+            <div className="lg:col-span-6">
+              <div className="card p-5 sm:p-6 space-y-5 shadow-md">
+                <div className="flex items-start justify-between gap-4 pb-4 border-b border-theme">
+                  <div>
+                    <span className="text-[11px] font-semibold text-theme-muted block">
+                      Exemplo de Ficha
+                    </span>
+                    <h2 className="text-lg font-bold text-theme-primary mt-0.5">
+                      Vaca Holandesa — Lote 04
+                    </h2>
+                    <p className="text-xs text-theme-secondary mt-0.5">
+                      Fêmea, 560 kg, 48 meses — Piquete Norte
+                    </p>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-[8px] text-xs font-bold bg-brand text-white shrink-0">
+                    Enquadramento 92%
+                  </span>
+                </div>
+
+                {/* Régua de Qualidade de Captura */}
+                <div className="card-subtle p-4 space-y-2.5">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs font-semibold text-theme-secondary">
+                      Qualidade de Captura Anatômica (IA)
+                    </span>
+                    <span className="text-xs font-bold text-theme-primary">
+                      Padrão ouro (Dataset)
+                    </span>
+                  </div>
+
+                  <div className="relative h-2.5 rounded-full bg-theme-surface border border-theme">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: "100%",
+                        background:
+                          "linear-gradient(90deg, #B45309 0%, #D97706 40%, #184E3A 100%)",
+                        opacity: 0.85,
+                      }}
+                    />
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-white border-[2.5px] shadow-sm"
+                      style={{ left: "92%", borderColor: "#184E3A" }}
+                    />
+                  </div>
+
+                  <div className="flex justify-between text-[10px] font-medium text-theme-muted tabular-nums">
+                    <span>0% Fora de ângulo</span>
+                    <span>40% Mínimo</span>
+                    <span>100% Enquadrado</span>
+                  </div>
+                </div>
+
+                {/* Métricas em linha divisória única */}
+                <div className="grid grid-cols-3 divide-x divide-[var(--border-subtle)] pt-1 text-center">
+                  <div className="px-2">
+                    <p className="text-[11px] text-theme-muted">Capturas</p>
+                    <p className="text-base font-bold text-theme-primary tabular-nums mt-0.5">10</p>
+                  </div>
+                  <div className="px-2">
+                    <p className="text-[11px] text-theme-muted">Qualidade média</p>
+                    <p className="text-base font-bold text-theme-primary tabular-nums mt-0.5">92%</p>
+                  </div>
+                  <div className="px-2">
+                    <p className="text-[11px] text-theme-muted">Saúde</p>
+                    <p className="text-base font-bold text-brand mt-0.5">Em dia</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Pilares em faixa limpa */}
+        <section className="py-12 sm:py-16 px-4 sm:px-6 bg-theme-surface border-t border-theme">
+          <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8 md:divide-x md:divide-[var(--border-subtle)]">
+            <div className="md:pr-6 space-y-2">
+              <div className="w-9 h-9 rounded-[10px] bg-brand-soft flex items-center justify-center">
+                <WifiOff className="w-4 h-4" />
+              </div>
+              <h3 className="font-bold text-sm text-theme-primary">
+                Trabalho contínuo no pasto
+              </h3>
+              <p className="text-xs sm:text-sm text-theme-secondary leading-relaxed">
+                Fotos, movimentações e cadastros funcionam sem cobertura de rede e sincronizam ao
+                retornar à sede.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto shrink-0">
-              <Link
-                href="/login"
-                className="btn-primary px-6 py-3 text-xs sm:text-sm whitespace-nowrap"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                Acessar Plataforma
-              </Link>
+
+            <div className="md:px-6 space-y-2">
+              <div className="w-9 h-9 rounded-[10px] bg-brand-soft flex items-center justify-center">
+                <ScanLine className="w-4 h-4" />
+              </div>
+              <h3 className="font-bold text-sm text-theme-primary">
+                Busca por apelido ou leitor
+              </h3>
+              <p className="text-xs sm:text-sm text-theme-secondary leading-relaxed">
+                Localize o animal instantaneamente digitando o apelido, brinco ou aproximando um
+                leitor eletrônico Bluetooth.
+              </p>
+            </div>
+
+            <div className="md:pl-6 space-y-2">
+              <div className="w-9 h-9 rounded-[10px] bg-brand-soft flex items-center justify-center">
+                <Users className="w-4 h-4" />
+              </div>
+              <h3 className="font-bold text-sm text-theme-primary">
+                Equipe e guarda compartilhada
+              </h3>
+              <p className="text-xs sm:text-sm text-theme-secondary leading-relaxed">
+                Compartilhe fichas específicas com veterinários e colaboradores mantendo a
+                propriedade e o histórico organizados.
+              </p>
             </div>
           </div>
         </section>
       </main>
 
-      {/* Footer Compacto */}
-      <footer className="border-t border-theme py-4 px-4 text-center text-xs text-theme-muted">
-        CattleCapture · Plataforma de Coleta & Construção de Dataset para IA de ICS (Índice de Condição Corporal Bovino)
+      <footer className="border-t border-theme py-6 px-4 sm:px-6 bg-theme-bg text-xs text-theme-muted">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span className="font-semibold text-theme-primary">CattleCapture</span>
+          <p>© {new Date().getFullYear()} CattleCapture · Captura e Curadoria de Dataset Bovino</p>
+        </div>
       </footer>
     </div>
   );

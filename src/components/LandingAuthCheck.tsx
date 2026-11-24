@@ -1,22 +1,21 @@
 "use client";
 
 import { useEffect } from "react";
-import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth-context";
 
 /**
- * Componente leve para redirecionar usuários autenticados da landing page para o dashboard
- * mantendo a landing page como página 100% estática (SSG), economizando slots de Serverless Functions.
+ * Redireciona usuários autenticados da landing page diretamente para o dashboard.
  */
 export function LandingAuthCheck() {
-  const { data: session } = useSession();
+  const { isAuthenticated, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (session?.user) {
+    if (!loading && isAuthenticated) {
       router.replace("/dashboard");
     }
-  }, [session, router]);
+  }, [isAuthenticated, loading, router]);
 
   return null;
 }
