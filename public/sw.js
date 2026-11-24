@@ -5,7 +5,7 @@
  *   offline da IA de identificação no curral.
  * - Páginas e navegação: Network-First com fallback em cache.
  */
-const CACHE_NAME = "cattle-capture-pwa-v3";
+const CACHE_NAME = "cattle-capture-pwa-v4";
 const PRECACHE_URLS = [
   "/",
   "/login",
@@ -51,7 +51,13 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
-  if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+  if (
+    url.origin !== self.location.origin ||
+    url.pathname.startsWith("/api/") ||
+    url.pathname.startsWith("/_vercel/")
+  ) {
+    return;
+  }
 
   if (
     url.pathname.startsWith("/_next/static/") ||
