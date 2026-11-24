@@ -1,57 +1,32 @@
 /**
- * Script resiliente de Migração e Sincronização do Banco (`scripts/build-db.mjs`).
+ * Script seguro e não-destrutivo de Migração Local do Banco (`scripts/build-db.mjs`).
  *
- * Responsabilidade:
- * 1. Tenta aplicar as migrações versionadas (`npx prisma migrate deploy`).
- *    Se o banco já existia via `db push` anterior (erro P3005), marca `20261016000000_init`
- *    como aplicada (`migrate resolve --applied`) e roda `migrate deploy` em seguida para
- *    aplicar `20261016150000_invert_ai_scores`.
- * 2. Garante alinhamento total do schema com `npx prisma db push --skip-generate --accept-data-loss`.
- * 3. Executa o seed idempotente (`npx tsx prisma/seed.ts`), que provisiona o Admin do `.env`
- *    e garante a inversão idempotente (`100 - score`) das fotos existentes no banco.
+ * ATENÇÃO CRÍTICA:
+ * - Nunca executa `prisma db push --accept-data-loss`, pois o CattleCapture e o CattleVision
+ *   podem compartilhar a mesma instância PostgreSQL onde tabelas/colunas de ICS do CattleVision
+ *   coexistem com o schema do CattleCapture.
+ * - Em builds da Vercel (`VERCEL=1`), não executa mutações automáticas de banco para impedir que
+ *   um build/preview do CattleCapture altere o banco de produção do CattleVision.
+ * - Localmente, executa apenas `prisma migrate deploy` (aditivo) quando acessível.
  */
 import { execSync } from "child_process";
 
-try {
-  console.log("[build-db] Aplicando migrações e sincronizando schema Prisma...");
-  try {
-    execSync("npx prisma migrate deploy", {
-      stdio: "inherit",
-      timeout: 25000,
-    });
-  } catch {
-    try {
-      execSync("npx prisma migrate resolve --applied 20261016000000_init", {
-        stdio: "inherit",
-        timeout: 15000,
-      });
-      execSync("npx prisma migrate deploy", {
-        stdio: "inherit",
-        timeout: 25000,
-      });
-    } catch {
-      // Continua para db push + seed idempotente
-    }
-  }
+if (process.env.VERCEL === "1" && process.env.ALLOW_VERCEL_BUILD_DB !== "true") {
+  console.log(
+    "[build-db] Ambiente Vercel detectado: pulando migração automática no build do CattleCapture para proteger bancos compartilhados."
+  );
+  process.exit(0);
+}
 
-  execSync("npx prisma db push --skip-generate --accept-data-loss", {
+try {
+  console.log("[build-db] Aplicando migrações aditivas Prisma (sem --accept-data-loss)...");
+  execSync("npx prisma migrate deploy", {
     stdio: "inherit",
     timeout: 25000,
   });
-
-  console.log("[build-db] Provisionando Admin via .env e aplicando calibração de scores...");
-  execSync("npx tsx prisma/seed.ts", {
-    stdio: "inherit",
-    timeout: 20000,
-  });
-
-  console.log("[build-db] Banco de dados migrado e sincronizado com sucesso.");
-} catch (err) {
-  if (process.env.VERCEL === "1") {
-    console.warn("[build-db] Aviso ao migrar banco na Vercel:", err?.message || err);
-  } else {
-    console.warn(
-      "[build-db] Banco PostgreSQL não acessível localmente no momento (as migrações serão aplicadas quando o banco estiver online)."
-    );
-  }
+  console.log("[build-db] Migrações aplicadas com sucesso.");
+} catch {
+  console.warn(
+    "[build-db] Banco PostgreSQL não acessível localmente ou histórico gerenciado externamente; seguindo com o build."
+  );
 }
