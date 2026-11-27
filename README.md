@@ -70,3 +70,14 @@ Para validar o build de produção localmente:
 npx tsc --noEmit
 npm run build
 ```
+
+---
+
+## Melhorias para a Próxima Equipe (Roadmap / Handoff)
+
+O **CattleCapture** entrega a base de coleta e curadoria; a trilha recomendada para evolução do ecossistema é:
+
+1. **Utilizar este sistema de coleta desenvolvido (`CattleCapture`) para gerar um dataset próprio**: Coletar capturas padronizadas em campo com guarda de enquadramento (`identifier.onnx`), metadados zootécnicos e exportação em ZIP/CSV.
+2. **Consultar especialista para realizar anotações do dataset**: Contar com um especialista (médico-veterinário ou zootecnista) para auditar e atribuir os rótulos de Índice de Condição Corporal (ICS 1,0–5,0) nas imagens exportadas.
+3. **Separar a IA de ICS do backend principal (se necessário)**: No ecossistema **CattleVision**, avaliar a separação do serviço de inferência ICS para um worker/microserviço independente do backend REST principal conforme demanda de latência, memória e escala.
+4. **Adicionar a nova IA de ICS gerada com o dataset próprio no sistema**: Treinar o modelo de ICS com o dataset próprio anotado e incorporá-lo ao **CattleVision** mantendo o **CattleCapture** focado em coleta e curadoria contínua.
